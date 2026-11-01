@@ -108,6 +108,12 @@ impl SignatureTemplate {
                     if hex.is_empty() || hex.len() % 2 != 0 {
                         return Err(SignatureError::InvalidArgument(value.into()));
                     }
+                    // Check the aggregate packet limit before allocating from
+                    // configuration-controlled input. A huge <b ...> token
+                    // must not trigger an unbounded temporary allocation.
+                    if hex.len() / 2 > MAX_SIGNATURE_PACKET_SIZE.saturating_sub(output_len) {
+                        return Err(SignatureError::PacketTooLarge);
+                    }
                     let mut bytes = Vec::with_capacity(hex.len() / 2);
                     for pair in hex.as_bytes().chunks(2) {
                         let text = std::str::from_utf8(pair)
@@ -318,6 +324,16 @@ mod tests {
         assert!(SignatureTemplate::parse("<r -1>").is_err());
         assert_eq!(
             SignatureTemplate::parse("<r 1001>"),
+            Err(SignatureError::PacketTooLarge)
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_static_bytes_before_allocating_them() {
+        let oversized_hex = "aa".repeat(MAX_SIGNATURE_PACKET_SIZE + 1);
+        let spec = format!("<b 0x{oversized_hex}>");
+        assert_eq!(
+            SignatureTemplate::parse(&spec),
             Err(SignatureError::PacketTooLarge)
         );
     }
