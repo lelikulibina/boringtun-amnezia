@@ -229,7 +229,11 @@ impl EngineConfig {
                 // The upstream UAPI requires every S1-S4 value to be at least
                 // HeaderCipherNonceSize when header protection is enabled.
                 // Missing values are treated as zero, not as "not applicable".
-                if config.headers.header_protection_key.is_some()
+                let header_protection_enabled = config
+                    .headers
+                    .header_protection_key
+                    .is_some_and(|key| key.iter().any(|byte| *byte != 0));
+                if header_protection_enabled
                     && [
                         config.padding.s1,
                         config.padding.s2,
@@ -427,6 +431,17 @@ mod tests {
                 Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12)
             );
         }
+    }
+
+    #[test]
+    fn all_zero_header_protection_key_is_treated_as_disabled() {
+        let mut awg = AmneziaConfig::default();
+        awg.headers.header_protection_key = Some([0; 32]);
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
+        assert_eq!(config.validate(), Ok(()));
     }
 
     #[test]
