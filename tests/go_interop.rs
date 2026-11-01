@@ -316,6 +316,78 @@ fn awg_config(is_31: bool) -> AmneziaConfig {
     }
 }
 
+fn run_upstream_wireguard_interop() {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let local = socket.local_addr().unwrap();
+    let rust_secret_bytes = [0x51; 32];
+    let go_secret_bytes = [0x61; 32];
+    let rust_secret = x25519::StaticSecret::from(rust_secret_bytes);
+    let go_secret = x25519::StaticSecret::from(go_secret_bytes);
+    let rust_public = x25519::PublicKey::from(&rust_secret);
+    let go_public = x25519::PublicKey::from(&go_secret);
+    let mut peer = GoPeer::spawn_with_env(
+        "WIREGUARD_GO_HELPER",
+        "wireguard-go",
+        &go_secret_bytes,
+        rust_public.as_bytes(),
+        local,
+    );
+    let mut tunnel = Tunn::new(rust_secret, go_public, None, None, 1, None);
+    let mut buffer = [0u8; 2048];
+    let mut udp_buffer = [0u8; 2048];
+
+    let initiation = match tunnel.format_handshake_initiation(&mut buffer, true) {
+        TunnResult::WriteToNetwork(packet) => packet.to_vec(),
+        other => panic!("expected upstream WireGuard initiation, got {other:?}"),
+    };
+    socket.send_to(&initiation, peer.address).unwrap();
+
+    let response = receive_udp(&socket, &mut udp_buffer);
+    assert_eq!(
+        u32::from_le_bytes(response[..4].try_into().unwrap()),
+        2,
+        "upstream wireguard-go should respond without a forced cookie challenge"
+    );
+    let output = tunnel.decapsulate(Some(peer.address.ip()), &response, &mut buffer);
+    send_wireguard_output(&socket, peer.address, output);
+
+    let rust_packet = ipv4_packet(1, 2);
+    let encrypted = match tunnel.encapsulate(&rust_packet, &mut buffer) {
+        TunnResult::WriteToNetwork(packet) => packet.to_vec(),
+        other => panic!("expected encrypted Rust IPv4 packet, got {other:?}"),
+    };
+    socket.send_to(&encrypted, peer.address).unwrap();
+    assert_eq!(peer.receive_tun_packet(), rust_packet);
+
+    let go_packet = ipv4_packet(2, 1);
+    peer.send_tun_packet(&go_packet);
+    let mut received_go_packet = false;
+    for _ in 0..5 {
+        let datagram = receive_udp(&socket, &mut udp_buffer);
+        match tunnel.decapsulate(Some(peer.address.ip()), &datagram, &mut buffer) {
+            TunnResult::WriteToTunnelV4(packet, _) => {
+                assert_eq!(packet, go_packet);
+                received_go_packet = true;
+                break;
+            }
+            TunnResult::WriteToNetwork(packet) => {
+                socket
+                    .send_to(packet, peer.address)
+                    .expect("send upstream WireGuard response");
+            }
+            TunnResult::Done => {}
+            other => panic!("unexpected upstream WireGuard output: {other:?}"),
+        }
+    }
+    assert!(
+        received_go_packet,
+        "Rust did not receive IPv4 transport from upstream wireguard-go"
+    );
+}
+
 fn send_rust_server_network_packet(
     socket: &UdpSocket,
     peer_address: SocketAddr,
@@ -656,6 +728,7 @@ fn run_awg_interop(
 #[ignore = "requires the pinned amneziawg-go helper built by the go-interop CI job"]
 fn interoperates_with_pinned_wireguard_and_amneziawg_go_in_both_directions() {
     run_wireguard_interop();
+    run_upstream_wireguard_interop();
     run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false, false);
     run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false, false);
     run_awg_interop(
