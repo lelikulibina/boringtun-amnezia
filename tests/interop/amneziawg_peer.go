@@ -125,7 +125,7 @@ func main() {
 		uapi.WriteString("random_trailers=true\n")
 		uapi.WriteString("content_padding_addition=1-4\n")
 		disableCookies := *mode == "awg31-nocookies"
-		fmt.Fprintf(&uapi, "disable_cookies=%t\\n", disableCookies)
+		fmt.Fprintf(&uapi, "disable_cookies=%t\n", disableCookies)
 	}
 	uapi.WriteString("replace_peers=true\n")
 	fmt.Fprintf(&uapi, "public_key=%s\nallowed_ip=10.0.0.0/24\nendpoint=%s\n", *peerPublicKey, *endpoint)
