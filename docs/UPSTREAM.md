@@ -27,6 +27,8 @@ README upstream предупреждает о реструктуризации �
 - CPS парсер Go поддерживает b, t, r, rc, rd, d, ds, dz. Для I-пакетов источник пуст; d/ds дают пустой вывод, dz кодирует нулевую длину.
 - Junk size выбирается по полуоткрытому диапазону [Jmin, Jmax); при равных границах длина равна Jmin.
 - RandomTrailers: для handshake/cookie добавляются случайные внешние байты, которые удаляются до передачи в WireGuard parser; для transport случайные нули добавляются в plaintext до AEAD, затем отбрасываются по длине внутреннего IP пакета.
+- Если ContentPaddingAddition и RandomTrailers выключены, Go использует calculatePaddingSize и дополняет transport plaintext до кратности 16 с учётом MTU.
+- UDP window peer начинается с 500 байт и увеличивается до максимального базового transport packet size. Для cookie reply используется фиксированное DefaultUdpWindow=500.
 - DisableCookies отключает выдачу cookie challenge, но не отключает проверку MAC1.
 - В upstream issue #189 (https://github.com/amnezia-vpn/amneziawg-go/issues/189) зафиксированы опасные некорректные конфигурации: Jmin > Jmax и отрицательные CPS размеры. В Rust-реализации эти значения отклоняются заранее; дополнительно ограничены Jc и размер CPS random tags.
 
