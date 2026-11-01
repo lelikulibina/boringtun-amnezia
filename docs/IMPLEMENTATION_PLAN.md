@@ -20,6 +20,7 @@
 - [x] Добавить Go peer helper и CI interoperability тест для WG/AWG 3.0/3.1 против закреплённого amneziawg-go; базовые handshake и двусторонний IPv4 transport прошли.
 - [x] Проверить Cookie Reply → MAC2 retry против Go peer для WG/AWG 3.0/3.1 при принудительно активном under-load состоянии.
 - [x] Проверить AWG 3.1 DisableCookies=true против Go peer: при активном under-load Cookie Reply не отправляется, handshake и transport завершаются.
+- [x] Проверить пороговый предикат Go IsUnderLoad() на изолированной handshake queue, заполненной до QueueHandshakeSize/8.
 - [ ] Проверить естественное достижение under-load через handshake queue, cookie rotation и upstream wireguard-go.
 
 ### Этап B — конфигурация AWG
