@@ -121,7 +121,7 @@ impl AwgTunnel {
         self.map_result(result, rng)
     }
 
-    fn map_result<R: RngCore>(
+    fn map_result<R: RngCore + CryptoRng>(
         &self,
         result: TunnResult<'_>,
         rng: &mut R,
