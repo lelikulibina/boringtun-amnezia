@@ -67,10 +67,10 @@ func (t *channelTun) Write(bufs [][]byte, offset int) (int, error) {
 	return len(bufs), nil
 }
 
-func (t *channelTun) MTU() (int, error) { return 1420, nil }
-func (t *channelTun) Name() (string, error) { return "awg-interop-tun", nil }
+func (t *channelTun) MTU() (int, error)        { return 1420, nil }
+func (t *channelTun) Name() (string, error)    { return "awg-interop-tun", nil }
 func (t *channelTun) Events() <-chan tun.Event { return t.events }
-func (t *channelTun) BatchSize() int { return 1 }
+func (t *channelTun) BatchSize() int           { return 1 }
 
 func (t *channelTun) Close() error {
 	t.once.Do(func() {
