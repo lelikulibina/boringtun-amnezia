@@ -118,6 +118,22 @@ impl GoPeer {
         self.stdin.flush().expect("flush Go helper stdin");
     }
 
+    fn is_under_load(&mut self) -> bool {
+        self.stdin
+            .write_all(b"LOAD?\\n")
+            .expect("query Go peer load state");
+        self.stdin.flush().expect("flush Go peer load query");
+        let line = self
+            .lines
+            .recv_timeout(Duration::from_secs(5))
+            .expect("timed out waiting for Go peer load state");
+        match line.as_str() {
+            "UNDERLOAD=1" => true,
+            "UNDERLOAD=0" => false,
+            _ => panic!("unexpected Go peer load response: {line}"),
+        }
+    }
+
     fn receive_tun_packet(&self) -> Vec<u8> {
         let line = self
             .lines
