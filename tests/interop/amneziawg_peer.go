@@ -235,6 +235,11 @@ func main() {
 			fmt.Println("FLOOD_SENT=10")
 			continue
 		}
+		if line == "ROTATE_COOKIE" {
+			device.RotateCookieSecretForInterop(dev)
+			fmt.Println("COOKIE_ROTATED=1")
+			continue
+		}
 		if strings.HasPrefix(line, "SEND:") {
 			packet, err := hex.DecodeString(strings.TrimPrefix(line, "SEND:"))
 			if err != nil {
