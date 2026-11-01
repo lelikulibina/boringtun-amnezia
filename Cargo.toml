@@ -2,7 +2,6 @@
 name = "boringtun-amnezia"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
 license = "BSD-3-Clause"
 description = "WireGuard and AmneziaWG protocol implementation in Rust"
 
@@ -18,5 +17,5 @@ amneziawg-3-0 = ["amneziawg"]
 amneziawg-3-1 = ["amneziawg"]
 
 [dependencies]
-
-[dev-dependencies]
+# Use the published, versioned upstream library rather than unstable master.
+boringtun = { version = "=0.7.1", default-features = false }
