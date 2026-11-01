@@ -6,7 +6,7 @@
 
 use crate::{AmneziaConfig, ValueRange};
 use blake2::digest::consts::U16;
-use blake2::digest::{FixedOutput, KeyInit};
+use blake2::digest::FixedOutput;
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
