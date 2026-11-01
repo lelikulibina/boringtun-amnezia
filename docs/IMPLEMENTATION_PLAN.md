@@ -38,6 +38,8 @@
 - [x] Стандартное дополнение transport plaintext до кратности 16 с учётом MTU.
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
 - [x] Внутренний MAC2 cookie flow: расшифровка Cookie Reply, сохранение cookies, проверка исходного MAC2 и безопасный пересчёт после канонизации.
+- [x] Независимые BLAKE2s golden vectors для MAC1/cookie key derivation и MAC1/MAC2 message tags.
+- [ ] Golden vectors и differential-проверка полного AWG packet framing непосредственно с закреплённой Go-реализацией.
 - [x] End-to-end RateLimiter under-load test: Cookie Reply → client cookie → randomized retry → успешный handshake.
 - [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation (внутренний Rust↔Rust under-load тест уже есть, но он не доказывает совместимость с Go).
 - [x] Экспортировать `update_timers` и проводить результаты timer polling через AWG framing, включая I1-I5/junk при повторном handshake.
