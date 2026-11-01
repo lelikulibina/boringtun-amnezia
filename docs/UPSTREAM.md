@@ -41,7 +41,7 @@ README upstream предупреждает о реструктуризации �
 - Репозиторий: https://github.com/WireGuard/wireguard-go
 - Контрольная ревизия при аудите: `b3bc704ef0ee21a36298601a9e1e5ff90377ac52`.
 - Используется как независимый поведенческий эталон для классического WireGuard.
-- Нужны двусторонние тесты Rust/BoringTun ↔ wireguard-go.
+- Добавлен отдельный helper `tests/interop/wireguard_peer.go`, который собирается непосредственно внутри закреплённой upstream ревизии и проверяет Rust/BoringTun ↔ wireguard-go в обе стороны. Результат CI для нового helper ожидается.
 
 ## Текущее состояние
 
