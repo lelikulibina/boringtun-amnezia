@@ -158,6 +158,31 @@ fn awg_framed_handshake_and_transport_work_in_both_directions() {
 }
 
 #[test]
+fn default_awg_transport_padding_aligns_plaintext_to_sixteen_bytes() {
+    let config = awg_config();
+    let (mut initiator, mut responder) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x2a);
+    let mut buffer = [0u8; 2048];
+    establish_pair(&mut initiator, &mut responder, &mut rng, &mut buffer);
+
+    let packet = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
+    let encrypted = network_packet(
+        initiator
+            .encapsulate(&packet, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    // 12 bytes S4 + 16-byte transport header + 32-byte padded plaintext
+    // plus 16-byte Poly1305 tag.
+    assert_eq!(encrypted.len(), 76);
+    assert_eq!(
+        responder
+            .decapsulate(None, &encrypted, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::WriteToTunnelV4(packet, Ipv4Addr::new(10, 0, 0, 1))
+    );
+}
+
+#[test]
 fn awg_31_random_trailers_and_content_padding_round_trip() {
     let mut config = awg_config();
     config.random_trailers = true;
