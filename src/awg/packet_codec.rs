@@ -9,7 +9,7 @@ use crate::{AmneziaConfig, ValueRange};
 use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
-use rand_core::RngCore;
+use rand_core::{CryptoRng, RngCore};
 use std::fmt;
 
 const MAX_UDP_PAYLOAD: usize = 65_507;
@@ -179,7 +179,7 @@ impl AwgPacketCodec {
     ///
     /// Для handshake/cookie header protection применяется ко всему сообщению;
     /// для transport — только к 16-байтовому транспортному заголовку, как в Go.
-    pub fn encode<R: RngCore>(
+    pub fn encode<R: RngCore + CryptoRng>(
         &self,
         canonical_packet: &[u8],
         rng: &mut R,
@@ -298,6 +298,8 @@ mod tests {
     use super::*;
 
     struct FixedRng(u8);
+
+    impl CryptoRng for FixedRng {}
 
     impl RngCore for FixedRng {
         fn next_u32(&mut self) -> u32 {
