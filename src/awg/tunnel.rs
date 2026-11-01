@@ -1,7 +1,7 @@
 //! Высокоуровневая обёртка BoringTun с базовым AWG framing.
 
 use super::packet_codec::{AwgPacketCodec, PacketCodecError};
-use crate::wireguard::{Tunn, TunnResult, x25519};
+use crate::wireguard::{x25519, Tunn, TunnResult};
 use crate::AmneziaConfig;
 use boringtun::noise::errors::WireGuardError;
 use rand_core::RngCore;
@@ -129,9 +129,9 @@ impl AwgTunnel {
         match result {
             TunnResult::Done => Ok(AwgTunnelOutput::Done),
             TunnResult::Err(error) => Err(AwgTunnelError::WireGuard(error)),
-            TunnResult::WriteToNetwork(packet) => {
-                Ok(AwgTunnelOutput::WriteToNetwork(self.codec.encode(packet, rng)?))
-            }
+            TunnResult::WriteToNetwork(packet) => Ok(AwgTunnelOutput::WriteToNetwork(
+                self.codec.encode(packet, rng)?,
+            )),
             TunnResult::WriteToTunnelV4(packet, source) => {
                 Ok(AwgTunnelOutput::WriteToTunnelV4(packet.to_vec(), source))
             }
