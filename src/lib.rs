@@ -12,6 +12,10 @@ pub mod wireguard {
     pub use boringtun::x25519;
 }
 
+/// CPS-парсер и генератор сигнатурных пакетов AmneziaWG.
+#[cfg(feature = "amneziawg")]
+pub mod signature;
+
 /// Режим протокола, который должен использовать будущий движок.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProtocolMode {
