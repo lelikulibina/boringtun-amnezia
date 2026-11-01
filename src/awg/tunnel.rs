@@ -354,7 +354,7 @@ impl AwgTunnel {
                 }
 
                 Ok(AwgTunnelOutput::WriteToNetwork(encoded))
-            },
+            }
             TunnResult::WriteToTunnelV4(packet, source) => {
                 Ok(AwgTunnelOutput::WriteToTunnelV4(packet.to_vec(), source))
             }
