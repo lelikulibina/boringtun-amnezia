@@ -140,7 +140,7 @@ fn awg30_header_protection_and_transport_are_interoperable_between_tunnels() {
         .decapsulate(None, &encrypted, &mut buffer, &mut rng)
         .unwrap()
     {
-        AwgTunnelOutput::WriteToTunnelV4(packet) => assert_eq!(packet, inner),
+        AwgTunnelOutput::WriteToTunnelV4(packet, _) => assert_eq!(packet, inner),
         other => panic!("ожидался расшифрованный IPv4 пакет, получено: {other:?}"),
     }
 }
