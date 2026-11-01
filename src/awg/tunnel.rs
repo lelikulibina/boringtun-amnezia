@@ -329,6 +329,25 @@ impl AwgTunnel {
         Ok(packets)
     }
 
+    fn encode_network_packet<R: RngCore + CryptoRng>(
+        &mut self,
+        packet: &[u8],
+        rng: &mut R,
+    ) -> Result<Vec<u8>, AwgTunnelError> {
+        // Upstream uses the fixed device UDP window for Cookie Reply trailers;
+        // handshake initiation/response use the peer's learned UDP window.
+        let message_type = packet
+            .get(..4)
+            .and_then(|header| <[u8; 4]>::try_from(header).ok())
+            .map(u32::from_le_bytes);
+        let udp_window = if message_type == Some(3) {
+            DEFAULT_UDP_WINDOW
+        } else {
+            self.udp_window
+        };
+        Ok(self.codec.encode(packet, udp_window, rng)?)
+    }
+
     fn map_result<R: RngCore + CryptoRng>(
         &mut self,
         result: TunnResult<'_>,
@@ -343,7 +362,7 @@ impl AwgTunnel {
                     .and_then(|header| <[u8; 4]>::try_from(header).ok())
                     .map(u32::from_le_bytes)
                     == Some(1);
-                let encoded = self.codec.encode(packet, self.udp_window, rng)?;
+                let encoded = self.encode_network_packet(packet, rng)?;
 
                 if is_handshake_initiation {
                     let mut batch = self.preamble_packets(rng)?;
