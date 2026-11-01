@@ -445,6 +445,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cookie_reply_is_decrypted_with_last_mac1_and_peer_static_key() {
+        let local_secret = x25519::StaticSecret::from([0x11; 32]);
+        let peer_secret = x25519::StaticSecret::from([0x22; 32]);
+        let local_public = x25519::PublicKey::from(&local_secret);
+        let peer_public = x25519::PublicKey::from(&peer_secret);
+        let config = AmneziaConfig::default();
+        let mut tunnel = AwgTunnel::new(
+            ProtocolMode::AmneziaWg31,
+            local_secret,
+            peer_public,
+            None,
+            None,
+            1,
+            &config,
+        )
+        .unwrap();
+
+        let sender_index = 0x1234_5678;
+        let last_mac1 = [0x5a; 16];
+        let cookie = [0x6b; 16];
+        let nonce = [0x7c; 24];
+        tunnel.last_outbound_handshake = Some((sender_index, last_mac1));
+
+        let cipher = XChaCha20Poly1305::new_from_slice(&tunnel.peer_cookie_key).unwrap();
+        let encrypted = cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &cookie,
+                    aad: &last_mac1,
+                },
+            )
+            .unwrap();
+        assert_eq!(encrypted.len(), 32);
+
+        let mut packet = vec![0u8; 64];
+        packet[..4].copy_from_slice(&3u32.to_le_bytes());
+        packet[4..8].copy_from_slice(&sender_index.to_le_bytes());
+        packet[8..32].copy_from_slice(&nonce);
+        packet[32..64].copy_from_slice(&encrypted);
+
+        tunnel.capture_cookie_reply(&packet).unwrap();
+        assert!(tunnel.codec.has_write_cookie());
+        assert_eq!(local_public.as_bytes().len(), 32);
+    }
+
+    #[test]
     fn calculate_padding_size_matches_awg_multiple_of_sixteen_rule() {
         assert_eq!(calculate_padding_size(20, 1_420), 12);
         assert_eq!(calculate_padding_size(32, 1_420), 0);
