@@ -380,9 +380,9 @@ mod tests {
                 content_padding: None,
             };
             let config = EngineConfig {
-            mode: ProtocolMode::AmneziaWg30,
-            amnezia: Some(awg),
-        };
+                mode: ProtocolMode::AmneziaWg30,
+                amnezia: Some(awg),
+            };
             assert_eq!(
                 config.validate(),
                 Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12)
@@ -501,9 +501,9 @@ mod tests {
             ..AmneziaConfig::default()
         };
         let config = EngineConfig {
-                mode: ProtocolMode::AmneziaWg30,
-                amnezia: Some(awg),
-            };
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
         assert_eq!(
             config.validate(),
             Err(ConfigError::InvalidJunkPacketBounds { min: 80, max: 40 })
