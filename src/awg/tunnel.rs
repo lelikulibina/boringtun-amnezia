@@ -91,7 +91,7 @@ impl AwgTunnel {
     }
 
     /// Шифрует внутренний IP-пакет и добавляет AWG framing.
-    pub fn encapsulate<R: RngCore>(
+    pub fn encapsulate<R: RngCore + CryptoRng>(
         &mut self,
         inner_packet: &[u8],
         dst: &mut [u8],
@@ -105,7 +105,7 @@ impl AwgTunnel {
     ///
     /// Пустой datagram передаётся напрямую: BoringTun использует его для
     /// продолжения отправки ранее поставленных в очередь пакетов.
-    pub fn decapsulate<R: RngCore>(
+    pub fn decapsulate<R: RngCore + CryptoRng>(
         &mut self,
         src_addr: Option<IpAddr>,
         datagram: &[u8],
