@@ -854,7 +854,7 @@ mod tests {
         config.padding.s2 = Some(8);
         config.padding.s3 = Some(16);
         config.padding.s4 = Some(20);
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
 
         for kind in [
             MessageKind::HandshakeInitiation,
@@ -878,7 +878,7 @@ mod tests {
 
     #[test]
     fn round_trips_all_message_types_with_chacha20_header_protection() {
-        let codec = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(true)).unwrap();
         for kind in [
             MessageKind::HandshakeInitiation,
             MessageKind::HandshakeResponse,
@@ -896,7 +896,7 @@ mod tests {
     #[test]
     fn codec_debug_redacts_header_protection_and_mac1_keys() {
         let config = base_config(true);
-        let codec = AwgPacketCodec::new_with_keys(&config, &[0xa5; 32], &[0x5a; 32]).unwrap();
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0xa5; 32], &[0x5a; 32]).unwrap();
         let rendered = format!("{codec:?}");
 
         assert!(rendered.contains("[REDACTED]"));
@@ -931,7 +931,7 @@ mod tests {
     fn all_zero_header_protection_key_disables_the_cipher() {
         let mut config = AmneziaConfig::default();
         config.headers.header_protection_key = Some([0; 32]);
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(9)).unwrap();
         assert_eq!(codec.decode(&encoded).unwrap(), packet);
@@ -962,7 +962,7 @@ mod tests {
         let mut config = base_config(false);
         config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
-        let codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x11; 32]).unwrap();
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x11; 32]).unwrap();
 
         let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
         let mac2_offset = packet.len() - 16;
@@ -990,7 +990,7 @@ mod tests {
         let mut config = base_config(false);
         config.headers.h3 = Some(ValueRange { min: 50, max: 60 });
         config.headers.h4 = Some(ValueRange { min: 70, max: 80 });
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
 
         for kind in [MessageKind::CookieReply, MessageKind::Transport] {
             let packet = canonical_packet(kind);
@@ -1003,7 +1003,7 @@ mod tests {
     fn random_trailers_are_added_to_handshake_and_stripped_on_receive() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
         assert!(encoded.len() > codec.padding[0] + packet.len());
@@ -1014,7 +1014,7 @@ mod tests {
     fn cookie_reply_random_trailer_uses_the_default_udp_window() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::CookieReply);
         let encoded = codec.encode(&packet, 4_000, &mut FixedRng(0x31)).unwrap();
         assert!(encoded.len() <= DEFAULT_UDP_WINDOW);
@@ -1025,7 +1025,7 @@ mod tests {
     fn random_trailers_are_not_appended_outside_transport_ciphertext() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::Transport);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
         assert_eq!(encoded.len(), codec.padding[3] + packet.len());
@@ -1041,7 +1041,7 @@ mod tests {
         config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
         config.headers.h4 = Some(ValueRange { min: 200, max: 201 });
 
-        let codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
 
         // The bytes at S1 look like a randomized initiation header, but the
         // actual datagram starts its transport message at S4. Its apparent
@@ -1075,7 +1075,7 @@ mod tests {
 
     #[test]
     fn decode_never_panics_for_short_or_random_datagrams() {
-        let codec = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(true)).unwrap();
         let mut state = 0x1234_5678u32;
         for length in 0..512 {
             let mut datagram = vec![0u8; length];
@@ -1091,7 +1091,7 @@ mod tests {
 
     #[test]
     fn rejects_malformed_and_oversized_datagrams() {
-        let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
             codec.decode(&[0, 1, 2]),
             Err(PacketCodecError::InvalidDatagram)
@@ -1104,7 +1104,7 @@ mod tests {
 
     #[test]
     fn rejects_noncanonical_packets_on_encode() {
-        let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
             codec.encode(&[1, 2, 3, 4], 500, &mut FixedRng(1)),
             Err(PacketCodecError::InvalidCanonicalPacket)
@@ -1113,10 +1113,10 @@ mod tests {
 
     #[test]
     fn rejects_wrong_header_protection_key() {
-        let sender = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut sender = AwgPacketCodec::new(&base_config(true)).unwrap();
         let mut wrong = base_config(true);
         wrong.headers.header_protection_key = Some([0x99; 32]);
-        let receiver = AwgPacketCodec::new(&wrong).unwrap();
+        let mut receiver = AwgPacketCodec::new(&wrong).unwrap();
 
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = sender.encode(&packet, 500, &mut FixedRng(3)).unwrap();
