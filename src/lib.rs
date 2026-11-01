@@ -111,6 +111,14 @@ pub struct HeaderObfuscation {
     pub header_protection_key: Option<[u8; 32]>,
 }
 
+impl Drop for HeaderObfuscation {
+    fn drop(&mut self) {
+        if let Some(key) = self.header_protection_key.as_mut() {
+            key.zeroize();
+        }
+    }
+}
+
 impl core::fmt::Debug for HeaderObfuscation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HeaderObfuscation")
