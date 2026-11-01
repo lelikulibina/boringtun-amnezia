@@ -178,7 +178,11 @@ fn encapsulate_without_session_sends_preambles_before_automatic_handshake() {
     let mut buffer = [0u8; 2048];
     let inner = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
 
-    let batch = network_batch(initiator.encapsulate(&inner, &mut buffer, &mut rng).unwrap());
+    let batch = network_batch(
+        initiator
+            .encapsulate(&inner, &mut buffer, &mut rng)
+            .unwrap(),
+    );
     assert_eq!(batch.len(), 3);
     assert_eq!(batch[0], [0xca, 0xfe, 0xba, 0xbe]);
     assert_eq!(batch[1].len(), 7);
