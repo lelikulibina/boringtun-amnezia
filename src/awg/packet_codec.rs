@@ -366,8 +366,8 @@ impl AwgPacketCodec {
             recompute_mac1(&mut message, key)?;
         }
         if is_handshake {
-            if let Some(cookie) = self.write_cookie {
-                recompute_mac2(&mut message, &cookie)?;
+            if let Some(cookie) = self.write_cookie.as_ref() {
+                recompute_mac2(&mut message, cookie)?;
             }
         }
 
@@ -511,21 +511,22 @@ impl AwgPacketCodec {
                 // already proves possession of the issued cookie. Invalid
                 // MAC2 must remain invalid so BoringTun can issue a fresh
                 // Cookie Reply instead of the codec bypassing rate limiting.
-                let valid_mac2_cookie = if handshake {
-                    self.read_cookie
-                        .filter(|cookie| verify_mac2(&candidate, cookie))
-                } else {
-                    None
-                };
+                let valid_mac2_cookie = handshake
+                    && self
+                        .read_cookie
+                        .as_ref()
+                        .is_some_and(|cookie| verify_mac2(&candidate, cookie));
 
                 candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
                 if let Some(key) = inbound_mac1_key {
                     if recompute_mac1(&mut candidate, key).is_err() {
                         continue;
                     }
-                    if let Some(cookie) = valid_mac2_cookie {
-                        if recompute_mac2(&mut candidate, &cookie).is_err() {
-                            continue;
+                    if valid_mac2_cookie {
+                        if let Some(cookie) = self.read_cookie.as_ref() {
+                            if recompute_mac2(&mut candidate, cookie).is_err() {
+                                continue;
+                            }
                         }
                     }
                 }
@@ -579,12 +580,13 @@ impl AwgPacketCodec {
                 },
             )
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
-        let cookie: [u8; 16] = plaintext
+        let mut cookie: [u8; 16] = plaintext
             .as_slice()
             .try_into()
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
         plaintext.zeroize();
         self.read_cookie = Some(cookie);
+        cookie.zeroize();
         self.last_inbound_handshake_context = None;
         Ok(())
     }
@@ -624,12 +626,13 @@ impl AwgPacketCodec {
                 )
             })
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
-        let cookie: [u8; 16] = plaintext
+        let mut cookie: [u8; 16] = plaintext
             .as_slice()
             .try_into()
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
         plaintext.zeroize();
         self.write_cookie = Some(cookie);
+        cookie.zeroize();
         self.last_outbound_handshake_context = None;
         Ok(())
     }
