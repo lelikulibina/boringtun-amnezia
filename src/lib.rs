@@ -561,8 +561,10 @@ mod tests {
     #[test]
     fn adjacent_header_ranges_are_accepted() {
         let mut awg = AmneziaConfig::default();
-        awg.headers.h1 = Some(ValueRange { min: 1, max: 4 });
-        awg.headers.h2 = Some(ValueRange { min: 5, max: 9 });
+        awg.headers.h1 = Some(ValueRange { min: 1, max: 3 });
+        awg.headers.h2 = Some(ValueRange { min: 3, max: 5 });
+        awg.headers.h3 = Some(ValueRange { min: 5, max: 7 });
+        awg.headers.h4 = Some(ValueRange { min: 7, max: 9 });
         let config = EngineConfig {
             mode: ProtocolMode::AmneziaWg30,
             amnezia: Some(awg),
