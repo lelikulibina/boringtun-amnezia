@@ -373,18 +373,42 @@ fn run_wireguard_interop() {
     let rust_public = x25519::PublicKey::from(&rust_secret);
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn("wireguard", &go_secret_bytes, rust_public.as_bytes(), local);
-    let mut tunnel = Tunn::new(rust_secret, go_public, None, None, 1, None);
-    let mut buffer = [0u8; 2048];
+    let mut tunnel = Tunn::new(rust_secret, go_public.clone(), None, None, 1, None);
 
-    let initiation = match tunnel.format_handshake_initiation(&mut buffer, false) {
+    let probes = build_wireguard_underload_probes(&rust_secret_bytes, &go_public);
+    force_go_under_load(&mut peer, &probes);
+
+    let mut buffer = [0u8; 2048];
+    let mut initiation = match tunnel.format_handshake_initiation(&mut buffer, true) {
         TunnResult::WriteToNetwork(packet) => packet.to_vec(),
         other => panic!("expected WireGuard initiation, got {other:?}"),
     };
-    socket.send_to(&initiation, peer.address).unwrap();
     let mut udp_buffer = [0u8; 2048];
-    let response = receive_udp(&socket, &mut udp_buffer);
-    let result = tunnel.decapsulate(Some(peer.address.ip()), &response, &mut buffer);
-    send_wireguard_output(&socket, peer.address, result);
+    let mut established = false;
+
+    for _ in 0..3 {
+        socket.send_to(&initiation, peer.address).unwrap();
+        let response = receive_udp(&socket, &mut udp_buffer);
+        let message_type = u32::from_le_bytes(response[..4].try_into().unwrap());
+        let result = tunnel.decapsulate(Some(peer.address.ip()), &response, &mut buffer);
+
+        match message_type {
+            3 => {
+                assert!(matches!(result, TunnResult::Done));
+                initiation = match tunnel.format_handshake_initiation(&mut buffer, true) {
+                    TunnResult::WriteToNetwork(packet) => packet.to_vec(),
+                    other => panic!("expected WireGuard cookie retry, got {other:?}"),
+                };
+            }
+            2 => {
+                send_wireguard_output(&socket, peer.address, result);
+                established = true;
+                break;
+            }
+            other => panic!("unexpected WireGuard handshake response type: {other}"),
+        }
+    }
+    assert!(established, "WireGuard handshake did not complete after MAC2 retry");
 
     let rust_packet = ipv4_packet(1, 2);
     let encrypted = match tunnel.encapsulate(&rust_packet, &mut buffer) {
@@ -416,21 +440,49 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn(go_mode, &go_secret_bytes, rust_public.as_bytes(), local);
     let config = awg_config(is_31);
-    let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public, None, None, 1, &config)
-        .expect("create Rust AWG tunnel");
+    let mut tunnel = AwgTunnel::new(
+        mode,
+        rust_secret,
+        go_public.clone(),
+        None,
+        None,
+        1,
+        &config,
+    )
+    .expect("create Rust AWG tunnel");
+
+    let probes = build_awg_underload_probes(mode, &rust_secret_bytes, &go_public, &config);
+    force_go_under_load(&mut peer, &probes);
+
     let mut rng = FixedRng(0x51);
     let mut buffer = [0u8; 2048];
-
-    let initiation = tunnel
+    let mut initiation = tunnel
         .initiate_handshake(&mut buffer, true, &mut rng)
         .expect("format Rust AWG initiation");
-    send_awg_output(&socket, peer.address, initiation);
     let mut udp_buffer = [0u8; 2048];
-    let response = receive_udp(&socket, &mut udp_buffer);
-    let output = tunnel
-        .decapsulate(Some(peer.address.ip()), &response, &mut buffer, &mut rng)
-        .expect("decode Go AWG handshake response");
-    send_awg_output(&socket, peer.address, output);
+    let mut established = false;
+
+    for _ in 0..3 {
+        send_awg_output(&socket, peer.address, initiation);
+        let response = receive_udp(&socket, &mut udp_buffer);
+        let output = tunnel
+            .decapsulate(Some(peer.address.ip()), &response, &mut buffer, &mut rng)
+            .expect("decode Go AWG handshake response");
+
+        match output {
+            AwgTunnelOutput::Done => {
+                initiation = tunnel
+                    .initiate_handshake(&mut buffer, true, &mut rng)
+                    .expect("format AWG MAC2 cookie retry");
+            }
+            other => {
+                send_awg_output(&socket, peer.address, other);
+                established = true;
+                break;
+            }
+        }
+    }
+    assert!(established, "AWG handshake did not complete after MAC2 retry");
 
     let rust_packet = ipv4_packet(1, 2);
     let encrypted = tunnel
