@@ -6,11 +6,11 @@ Rust-проект для поддержки стандартного WireGuard �
 
 - **WireGuard:** подключён Cloudflare BoringTun 0.7.1 через точную версию Cargo dependency. Публичный API доступен через `wireguard::Tunn`; есть integration tests handshake и зашифрованного обмена IPv4-пакетами.
 - **AWG framing:** реализованы S1-S4 padding и ChaCha20 header protection. Для transport защищаются только 16 байт заголовка; ciphertext не изменяется.
-- **AWG tunnel wrapper:** добавлена обёртка BoringTun с двусторонним handshake/transport.
-- **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies; для transport дополнительные нулевые байты добавляются до шифрования, для handshake/cookie trailer обрабатывается внешним codec.
-- **I1-I5 и junk:** CPS-шаблоны отправляются перед junk-пакетами и handshake в правильном порядке.
+- **AWG tunnel wrapper:** добавлена обёртка BoringTun с двусторонним handshake/transport, I1-I5/Junk preambles и MTU-aware content padding.
+- **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies. Для handshake/cookie trailer добавляется во внешний датаграмм; для transport нулевые байты добавляются в plaintext до AEAD и обрезаются по длине внутреннего IP-пакета.
+- **Стандартное AWG padding:** при выключенных ContentPaddingAddition/RandomTrailers transport plaintext дополняется до кратности 16 с учётом MTU. MTU по умолчанию 1420; его можно изменить через `AwgTunnel::set_mtu`.
 - **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки.
-- **Ограничения:** произвольные H1-H4, кастомные таймеры и полный cookie/MAC interoperability с любыми конфигурациями пока не реализованы. Внутренние keepalive-пакеты BoringTun пока не получают transport padding addition.
+- **Ограничения:** произвольные H1-H4 и кастомные таймеры пока не реализованы. Внутренние keepalive-пакеты BoringTun пока не получают transport padding addition.
 - **Сетевой/TUN стек:** не входит в библиотечную обёртку.
 
 Полная совместимость с amneziawg-go 3.0/3.1 ещё не заявляется: требуются differential и двусторонние interoperability-тесты.
