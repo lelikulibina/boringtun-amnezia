@@ -3,9 +3,9 @@
 //! Конфигурационный API и протокольная основа WireGuard / AmneziaWG.
 //!
 //! Криптографическое ядро WireGuard предоставляется закреплённой зависимостью
-//! Cloudflare BoringTun. Собственный AWG packet transformation пока не реализован.
+//! Cloudflare BoringTun. Собственное преобразование пакетов AWG пока не реализовано.
 
-/// Прямой доступ к проверенному протокольному движку Cloudflare BoringTun.
+/// Прямой доступ к протокольному движку Cloudflare BoringTun.
 #[cfg(feature = "wireguard")]
 pub mod wireguard {
     pub use boringtun::noise::{Packet, Tunn, TunnResult};
@@ -78,6 +78,32 @@ pub struct PacketPadding {
     pub content_padding: Option<ValueRange>,
 }
 
+/// Настройки junk-пакетов, отправляемых перед handshake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct JunkConfig {
+    /// Количество junk-пакетов.
+    pub count: u32,
+    /// Минимальный размер junk-пакета в байтах.
+    pub min_size: u32,
+    /// Максимальный размер junk-пакета в байтах.
+    pub max_size: u32,
+}
+
+/// Настройки рандомизируемых таймеров AWG 3+.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TimingConfig {
+    /// Интервал до инициирования повторного handshake.
+    pub rekey_after_time: Option<ValueRange>,
+    /// Таймаут повторной отправки handshake.
+    pub rekey_timeout: Option<ValueRange>,
+    /// Время отклонения устаревших ключей.
+    pub reject_after_time: Option<ValueRange>,
+    /// Таймаут отправки keepalive.
+    pub keepalive_timeout: Option<ValueRange>,
+    /// Максимальное число попыток handshake.
+    pub max_handshake_attempts: Option<ValueRange>,
+}
+
 /// Конфигурация AWG, общая для поколений 3.0 и 3.1 на уровне типов.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AmneziaConfig {
@@ -85,6 +111,14 @@ pub struct AmneziaConfig {
     pub headers: HeaderObfuscation,
     /// Настройки S1-S4 и content padding.
     pub padding: PacketPadding,
+    /// Настройки junk-пакетов.
+    pub junk: JunkConfig,
+    /// Рандомизируемые таймеры AWG 3+.
+    pub timings: TimingConfig,
+    /// AWG 3.1: случайные trailer-данные для транспортных пакетов.
+    pub random_trailers: bool,
+    /// AWG 3.1: отключение cookie-механизма.
+    pub disable_cookies: bool,
 }
 
 /// Конфигурация выбранного режима протокола.
@@ -106,27 +140,54 @@ impl EngineConfig {
                 Err(ConfigError::MissingAmneziaOptions)
             }
             (ProtocolMode::AmneziaWg30 | ProtocolMode::AmneziaWg31, Some(config)) => {
-                for range in [
+                let ranges = [
                     config.headers.h1,
                     config.headers.h2,
                     config.headers.h3,
                     config.headers.h4,
                     config.padding.content_padding,
-                ].into_iter().flatten() {
+                    config.timings.rekey_after_time,
+                    config.timings.rekey_timeout,
+                    config.timings.reject_after_time,
+                    config.timings.keepalive_timeout,
+                    config.timings.max_handshake_attempts,
+                ];
+                for range in ranges.into_iter().flatten() {
                     if range.min > range.max {
                         return Err(ConfigError::InvalidRange { min: range.min, max: range.max });
                     }
                 }
-                // AmneziaWG documents a minimum padding requirement for header
-                // protection. Keep this check explicit until per-version rules
-                // are verified against the matching upstream source revision.
-                if config.headers.header_protection_key.is_some()
-                    && [config.padding.s1, config.padding.s2, config.padding.s3, config.padding.s4]
-                        .into_iter()
-                        .flatten()
-                        .any(|padding| padding < 12)
+
+                if config.junk.count > 0
+                    && (config.junk.min_size > config.junk.max_size
+                        || config.junk.max_size > 65_507)
                 {
-                    return Err(ConfigError::HeaderProtectionRequiresPaddingAtLeast12);
+                    return Err(ConfigError::InvalidJunkPacketBounds {
+                        min: config.junk.min_size,
+                        max: config.junk.max_size,
+                    });
+                }
+
+                // The upstream UAPI requires every S1-S4 value to be at least
+                // HeaderCipherNonceSize when header protection is enabled.
+                // Missing values are treated as zero, not as "not applicable".
+                if config.headers.header_protection_key.is_some()
+                    && [
+                        config.padding.s1,
+                        config.padding.s2,
+                        config.padding.s3,
+                        config.padding.s4,
+                    ]
+                    .into_iter()
+                    .any(|padding| padding.unwrap_or(0) < 12)
+                {
+                    return Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12);
+                }
+
+                if self.mode == ProtocolMode::AmneziaWg30
+                    && (config.random_trailers || config.disable_cookies)
+                {
+                    return Err(ConfigError::FeatureRequiresAmneziaWg31);
                 }
                 Ok(())
             }
@@ -143,8 +204,12 @@ pub enum ConfigError {
     MissingAmneziaOptions,
     /// Для чистого WireGuard переданы параметры AWG.
     AmneziaOptionsForWireGuard,
-    /// Защита заголовков требует padding не меньше 12 байт.
-    HeaderProtectionRequiresPaddingAtLeast12,
+    /// Junk packet size range is invalid or exceeds the UDP payload ceiling.
+    InvalidJunkPacketBounds { min: u32, max: u32 },
+    /// Header protection requires all four S1-S4 paddings to be at least 12 bytes.
+    HeaderProtectionRequiresAllPaddingAtLeast12,
+    /// Параметр доступен только в режиме AmneziaWG 3.1.
+    FeatureRequiresAmneziaWg31,
 }
 
 impl core::fmt::Display for ConfigError {
@@ -153,7 +218,9 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidRange { min, max } => write!(f, "некорректный диапазон: минимум {min} больше максимума {max}"),
             Self::MissingAmneziaOptions => f.write_str("для режима AmneziaWG необходима конфигурация AWG"),
             Self::AmneziaOptionsForWireGuard => f.write_str("параметры AmneziaWG нельзя передавать в режиме WireGuard"),
-            Self::HeaderProtectionRequiresPaddingAtLeast12 => f.write_str("защита заголовков требует padding не меньше 12 байт"),
+            Self::InvalidJunkPacketBounds { min, max } => write!(f, "некорректный размер junk-пакетов: {min}..{max}"),
+            Self::HeaderProtectionRequiresAllPaddingAtLeast12 => f.write_str("защита заголовков требует S1, S2, S3 и S4 не меньше 12 байт"),
+            Self::FeatureRequiresAmneziaWg31 => f.write_str("random_trailers и disable_cookies доступны только в AmneziaWG 3.1"),
         }
     }
 }
@@ -196,28 +263,73 @@ mod tests {
     }
 
     #[test]
-    fn header_protection_rejects_any_configured_padding_below_twelve() {
-        for (s1, s2, s3, s4) in [
-            (Some(11), None, None, None),
-            (None, Some(11), None, None),
-            (None, None, Some(11), None),
-            (None, None, None, Some(11)),
-        ] {
+    fn header_protection_requires_all_four_paddings() {
+        for missing_index in 0..4 {
+            let mut values = [Some(12); 4];
+            values[missing_index] = None;
             let mut awg = AmneziaConfig::default();
             awg.headers.header_protection_key = Some([0x42; 32]);
-            awg.padding = PacketPadding { s1, s2, s3, s4, content_padding: None };
+            awg.padding = PacketPadding {
+                s1: values[0], s2: values[1], s3: values[2], s4: values[3],
+                content_padding: None,
+            };
             let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
-            assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresPaddingAtLeast12));
+            assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12));
         }
     }
 
     #[test]
-    fn header_protection_accepts_configured_padding_of_twelve() {
+    fn header_protection_rejects_each_padding_below_twelve() {
+        for index in 0..4 {
+            let mut values = [Some(12); 4];
+            values[index] = Some(11);
+            let mut awg = AmneziaConfig::default();
+            awg.headers.header_protection_key = Some([0x42; 32]);
+            awg.padding = PacketPadding {
+                s1: values[0], s2: values[1], s3: values[2], s4: values[3],
+                content_padding: None,
+            };
+            let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
+            assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12));
+        }
+    }
+
+    #[test]
+    fn header_protection_accepts_all_four_paddings_of_twelve() {
         let mut awg = AmneziaConfig::default();
         awg.headers.header_protection_key = Some([0x42; 32]);
-        awg.padding.s1 = Some(12);
+        awg.padding = PacketPadding {
+            s1: Some(12), s2: Some(12), s3: Some(12), s4: Some(12),
+            content_padding: None,
+        };
         let config = EngineConfig { mode: ProtocolMode::AmneziaWg31, amnezia: Some(awg) };
         assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[test]
+    fn awg_31_flags_are_rejected_in_awg_30() {
+        for (random_trailers, disable_cookies) in [(true, false), (false, true), (true, true)] {
+            let awg = AmneziaConfig { random_trailers, disable_cookies, ..AmneziaConfig::default() };
+            let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
+            assert_eq!(config.validate(), Err(ConfigError::FeatureRequiresAmneziaWg31));
+        }
+    }
+
+    #[test]
+    fn awg_31_flags_are_accepted_in_awg_31() {
+        let awg = AmneziaConfig { random_trailers: true, disable_cookies: true, ..AmneziaConfig::default() };
+        let config = EngineConfig { mode: ProtocolMode::AmneziaWg31, amnezia: Some(awg) };
+        assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[test]
+    fn junk_packet_bounds_are_validated() {
+        let awg = AmneziaConfig {
+            junk: JunkConfig { count: 3, min_size: 80, max_size: 40 },
+            ..AmneziaConfig::default()
+        };
+        let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
+        assert_eq!(config.validate(), Err(ConfigError::InvalidJunkPacketBounds { min: 80, max: 40 }));
     }
 
     #[test]
