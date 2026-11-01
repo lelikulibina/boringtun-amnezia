@@ -328,7 +328,7 @@ impl AwgPacketCodec {
     /// Для handshake/cookie header protection применяется ко всему сообщению;
     /// для transport — только к 16-байтовому транспортному заголовку, как в Go.
     pub fn encode<R: RngCore + CryptoRng>(
-        &self,
+        &mut self,
         canonical_packet: &[u8],
         udp_window: usize,
         rng: &mut R,
@@ -338,24 +338,57 @@ impl AwgPacketCodec {
         let kind = MessageKind::from_packet(&parsed);
         let padding_len = self.padding[kind.index()];
         let mut message = canonical_packet.to_vec();
+        if kind == MessageKind::CookieReply {
+            self.capture_issued_cookie(&message)?;
+        }
         let header_range = self.header_ranges[kind.index()];
         let header_value = pick_header_value(header_range, rng);
         message[..4].copy_from_slice(&header_value.to_le_bytes());
 
-        if matches!(
+        let is_handshake = matches!(
             kind,
             MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-        ) && header_value != kind.type_id()
-        {
+        );
+        if is_handshake && header_value != kind.type_id() {
             let key = self
                 .outbound_mac1_key
                 .as_ref()
                 .ok_or(PacketCodecError::MissingMac1Keys)?;
             recompute_mac1(&mut message, key)?;
         }
-        // Preserve MAC2 exactly as BoringTun produced it. DisableCookies
-        // suppresses cookie challenges on receive; it does not erase a
-        // previously learned cookie or forbid outgoing MAC2 values.
+        if is_handshake {
+            if let Some(cookie) = self.write_cookie {
+                recompute_mac2(&mut message, &cookie)?;
+            }
+        }
+
+        let outbound_handshake_context = if is_handshake {
+            let mac1_offset = message
+                .len()
+                .checked_sub(32)
+                .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+            let sender_index = u32::from_le_bytes(message[4..8].try_into().unwrap());
+            let random_mac1: [u8; 16] = message[mac1_offset..mac1_offset + 16]
+                .try_into()
+                .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
+            let canonical_mac1 = if header_value == kind.type_id() {
+                random_mac1
+            } else {
+                let mut canonical_message = message.clone();
+                canonical_message[..4].copy_from_slice(&kind.type_id().to_le_bytes());
+                let key = self
+                    .outbound_mac1_key
+                    .as_ref()
+                    .ok_or(PacketCodecError::MissingMac1Keys)?;
+                recompute_mac1(&mut canonical_message, key)?;
+                canonical_message[mac1_offset..mac1_offset + 16]
+                    .try_into()
+                    .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?
+            };
+            Some((sender_index, random_mac1, canonical_mac1))
+        } else {
+            None
+        };
 
         let message_len = message.len();
         let trailer_len = if self.random_trailers && kind != MessageKind::Transport {
@@ -394,6 +427,9 @@ impl AwgPacketCodec {
         }
         if trailer_len > 0 {
             rng.fill_bytes(&mut datagram[message_end..]);
+        }
+        if let Some(context) = outbound_handshake_context {
+            self.last_outbound_handshake_context = Some(context);
         }
 
         Ok(datagram)
