@@ -72,6 +72,13 @@ pub enum PacketCodecError {
     UnsupportedOption(&'static str),
     /// Итоговый датаграмм превышает безопасный UDP payload ceiling.
     PacketTooLarge,
+    /// Буфер назначения меньше минимального размера, требуемого BoringTun.
+    DestinationBufferTooSmall {
+        /// Минимально необходимый размер.
+        required: usize,
+        /// Фактический размер переданного буфера.
+        actual: usize,
+    },
     /// Не удалось создать ChaCha20 cipher с переданными key/nonce.
     InvalidCipherParameters,
 }
@@ -93,6 +100,9 @@ impl fmt::Display for PacketCodecError {
                 )
             }
             Self::PacketTooLarge => f.write_str("AWG-датаграмм превышает максимальный UDP payload"),
+            Self::DestinationBufferTooSmall { required, actual } => {
+                write!(f, "буфер слишком мал: требуется {required} байт, получено {actual}")
+            }
             Self::InvalidCipherParameters => f.write_str("неверные параметры ChaCha20"),
         }
     }
