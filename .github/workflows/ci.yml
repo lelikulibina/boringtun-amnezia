@@ -72,7 +72,7 @@ jobs:
       - name: Собрать тестовый Go peer
         run: |
           mkdir -p "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer"
-          gofmt -w tests/interop/amneziawg_peer.go
+          gofmt -w tests/interop/amneziawg_peer.go tests/interop/underload_test_hook.go
           cp tests/interop/amneziawg_peer.go "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer/main.go"
           cp tests/interop/underload_test_hook.go "$RUNNER_TEMP/amneziawg-go/device/interop_test_hook.go"
           cd "$RUNNER_TEMP/amneziawg-go"
