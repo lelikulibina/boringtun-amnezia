@@ -31,7 +31,7 @@ README upstream предупреждает о реструктуризации �
 - UDP window peer начинается с 500 байт и увеличивается до максимального базового transport packet size. Для cookie reply используется фиксированное DefaultUdpWindow=500.
 - DisableCookies отключает выдачу cookie challenge, но не отключает проверку MAC1.
 - MAC1 key: BLAKE2s-256("mac1----" || receiver static public key); MAC1 — keyed BLAKE2s-128 по сообщению до поля MAC1. При изменении H1/H2 Rust пересчитывает MAC1 для случайного type ID, а при приёме канонизирует type ID и пересчитывает MAC1 для локального BoringTun.
-- MAC2 использует cookie secret из RateLimiter и зависит от полного исходного сообщения. Публичный API BoringTun не раскрывает cookie secret, поэтому random H1/H2 пока поддерживается только при DisableCookies=true на обеих сторонах. При этом DisableCookies не означает очистку MAC2: Rust-кодек сохраняет MAC2, который уже сформировал BoringTun; флаг отключает выдачу cookie challenge, а не обработку ранее полученных Cookie Reply.
+- MAC2 использует cookie из Cookie Reply и keyed BLAKE2s-128 по сообщению с MAC1. Публичный API BoringTun не раскрывает cookie secret, поэтому Rust-кодек выводит cookie-encryption key из публичного ключа peer, расшифровывает Cookie Reply через XChaCha20-Poly1305 и сохраняет выданный cookie. При H1/H2 randomization исходный MAC2 сначала проверяется; только валидный MAC2 пересчитывается после канонизации. Невалидный MAC2 остаётся невалидным, чтобы BoringTun мог выдать новый Cookie Reply при rate limiting. DisableCookies по-прежнему отключает выдачу challenge, но не очищает MAC2.
 - В upstream issue #189 (https://github.com/amnezia-vpn/amneziawg-go/issues/189) зафиксированы опасные некорректные конфигурации: Jmin > Jmax и отрицательные CPS размеры. В Rust-реализации эти значения отклоняются заранее; дополнительно ограничены Jc и размер CPS random tags.
 
 Ограничения совместимости CPS: текущий модуль реализует безопасный разбор восьми Go-тегов, но строгая валидация аргументов намеренно отвергает часть неканонических строк, которые Go-парсер мог принять. Это будет уточнено differential-тестами.
@@ -50,7 +50,7 @@ README upstream предупреждает о реструктуризации �
 - Есть интеграционные тесты полного handshake и шифрования/расшифрования IPv4 пакета между двумя экземплярами Tunn.
 - Добавлен CPS парсер/рендерер I1-I5 с unit-тестами.
 - Конфигурация проверяет диапазоны, непересечение H1-H4, junk bounds, обязательные S1-S4 для Header Protection и флаги 3.1.
-- Реализован базовый AWG packet transformation pipeline: H1-H4, S1-S4, header protection, MAC1 normalization, RandomTrailers, ContentPaddingAddition, CPS preambles и junk. Полная совместимость AWG 3.0/3.1 пока не заявляется: нет внешней двусторонней interoperability suite, MAC2 under-load с random H1/H2, custom timers и keepalive padding.
+- Реализован базовый AWG packet transformation pipeline: H1-H4, S1-S4, header protection, MAC1 normalization, RandomTrailers, ContentPaddingAddition, CPS preambles и junk. Полная совместимость AWG 3.0/3.1 пока не заявляется: нет внешней двусторонней interoperability suite, внешняя MAC2 under-load/cookie-rotation проверка с random H1/H2, custom timers и keepalive padding.
 
 
 ## Дополнительное hardening после анализа классификатора
