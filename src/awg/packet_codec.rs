@@ -5,6 +5,7 @@
 //! MAC2 under-load сценарии требуют DisableCookies на обеих сторонах.
 
 use crate::{AmneziaConfig, ValueRange};
+use blake2::digest::consts::U16;
 use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use boringtun::noise::{Packet, Tunn};
@@ -488,7 +489,7 @@ fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecEr
         .len()
         .checked_sub(32)
         .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
-    let mut mac =
+    let mut mac: Blake2sMac<U16> =
         Blake2sMac::new_from_slice(key).map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
     blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
     let digest = mac.finalize_fixed();
