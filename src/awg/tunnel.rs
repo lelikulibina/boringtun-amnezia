@@ -127,7 +127,7 @@ impl AwgTunnel {
         // DisableCookies disables only local cookie challenges. With ordinary
         // H1/H2 randomization the codec instead canonicalizes incoming headers
         // and recomputes MAC2 from cookies issued by this peer.
-        let rate_limiter = if bypass_cookie_challenges {
+        let rate_limiter = if config.disable_cookies {
             Some(Arc::new(RateLimiter::new(&local_public, u64::MAX)))
         } else {
             None
