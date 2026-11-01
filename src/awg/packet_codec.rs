@@ -9,7 +9,6 @@ use crate::{AmneziaConfig, ValueRange};
 use boringtun::noise::{Packet, Tunn};
 use blake2::digest::{FixedOutput, KeyInit, Update};
 use blake2::{Blake2s256, Blake2sMac, Digest};
-use blake2::digest::consts::U16;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use rand_core::{CryptoRng, RngCore};
@@ -256,7 +255,32 @@ impl AwgPacketCodec {
             .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
         let kind = MessageKind::from_packet(&parsed);
         let padding_len = self.padding[kind.index()];
-        let message_len = canonical_packet.len();
+        let mut message = canonical_packet.to_vec();
+        let header_range = self.header_ranges[kind.index()];
+        let header_value = pick_header_value(header_range, rng);
+        message[..4].copy_from_slice(&header_value.to_le_bytes());
+
+        if matches!(
+            kind,
+            MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
+        ) {
+            if header_value != kind.type_id() {
+                let key = self
+                    .outbound_mac1_key
+                    .as_ref()
+                    .ok_or(PacketCodecError::MissingMac1Keys)?;
+                recompute_mac1(&mut message, key)?;
+            }
+            if self.disable_cookies {
+                let mac2_offset = message
+                    .len()
+                    .checked_sub(16)
+                    .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+                message[mac2_offset..].fill(0);
+            }
+        }
+
+        let message_len = message.len();
         let trailer_len = if self.random_trailers && kind != MessageKind::Transport {
             let window = if kind == MessageKind::CookieReply {
                 DEFAULT_UDP_WINDOW
@@ -277,7 +301,7 @@ impl AwgPacketCodec {
         let mut datagram = vec![0u8; total_len];
         rng.fill_bytes(&mut datagram[..padding_len]);
         let message_end = padding_len + message_len;
-        datagram[padding_len..message_end].copy_from_slice(canonical_packet);
+        datagram[padding_len..message_end].copy_from_slice(&message);
 
         if let Some(key) = self.header_protection_key {
             let nonce: [u8; HEADER_PROTECTION_NONCE_SIZE] = datagram
@@ -326,13 +350,41 @@ impl AwgPacketCodec {
                 }
                 candidate.truncate(expected_size);
             }
+            let header_range = self.header_ranges[kind.index()];
             if let Some(key) = self.header_protection_key {
                 let nonce = &datagram[..HEADER_PROTECTION_NONCE_SIZE];
-                if Self::unprotect_candidate(key, nonce, kind, &mut candidate).is_err() {
+                if Self::unprotect_candidate(
+                    key,
+                    nonce,
+                    kind,
+                    header_range,
+                    &mut candidate,
+                )
+                .is_err()
+                {
                     continue;
                 }
-            } else if u32::from_le_bytes(candidate[..4].try_into().unwrap()) != kind.type_id() {
+            } else if !header_range.contains(u32::from_le_bytes(
+                candidate[..4].try_into().unwrap(),
+            )) {
                 continue;
+            }
+
+            let received_header = u32::from_le_bytes(candidate[..4].try_into().unwrap());
+            if received_header != kind.type_id() {
+                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
+                if matches!(
+                    kind,
+                    MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
+                ) {
+                    let key = self
+                        .inbound_mac1_key
+                        .as_ref()
+                        .ok_or(PacketCodecError::MissingMac1Keys)?;
+                    if recompute_mac1(&mut candidate, key).is_err() {
+                        continue;
+                    }
+                }
             }
 
             let parsed = match Tunn::parse_incoming_packet(&candidate) {
@@ -378,12 +430,13 @@ impl AwgPacketCodec {
         key: [u8; 32],
         nonce: &[u8],
         expected_kind: MessageKind,
+        allowed_range: ValueRange,
         packet: &mut [u8],
     ) -> Result<(), PacketCodecError> {
         let mut cipher = ChaCha20::new_from_slices(&key, nonce)
             .map_err(|_| PacketCodecError::InvalidCipherParameters)?;
         cipher.apply_keystream(&mut packet[..4]);
-        if u32::from_le_bytes(packet[..4].try_into().unwrap()) != expected_kind.type_id() {
+        if !allowed_range.contains(u32::from_le_bytes(packet[..4].try_into().unwrap())) {
             return Err(PacketCodecError::InvalidDatagram);
         }
 
@@ -398,6 +451,38 @@ impl AwgPacketCodec {
         }
         Ok(())
     }
+}
+
+fn range_is_single_value(range: ValueRange, expected: u32) -> bool {
+    range.min == expected && (range.max == expected || range.max == expected + 1)
+}
+
+fn pick_header_value<R: RngCore>(range: ValueRange, rng: &mut R) -> u32 {
+    if range.min == range.max {
+        range.min
+    } else {
+        range.min + random_below(rng, (range.max - range.min) as usize) as u32
+    }
+}
+
+fn derive_mac1_key(public_key: &[u8; 32]) -> [u8; 32] {
+    let mut hash = Blake2s256::new();
+    hash.update(b"mac1----");
+    hash.update(public_key);
+    hash.finalize().into()
+}
+
+fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecError> {
+    let mac1_offset = packet
+        .len()
+        .checked_sub(32)
+        .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+    let mut mac = Blake2sMac::new_from_slice(key)
+        .map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
+    mac.update(&packet[..mac1_offset]);
+    let digest = mac.finalize_fixed();
+    packet[mac1_offset..mac1_offset + 16].copy_from_slice(&digest);
+    Ok(())
 }
 
 fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
