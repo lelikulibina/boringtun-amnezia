@@ -509,8 +509,7 @@ mod tests {
         let peer_secret = x25519::StaticSecret::from([0x22; 32]);
         let local_public = x25519::PublicKey::from(&local_secret);
         let peer_public = x25519::PublicKey::from(&peer_secret);
-        let mut tunnel =
-            tunnel_with_rate_limiter(local_secret, peer_public, 1, &config, None);
+        let mut tunnel = tunnel_with_rate_limiter(local_secret, peer_public, 1, &config, None);
         tunnel.udp_window = 1_000;
 
         let mut cookie_reply = vec![0u8; 64];
@@ -519,12 +518,9 @@ mod tests {
             .encode_network_packet(&cookie_reply, &mut FixedRng(0xff))
             .unwrap();
 
-        let mut expected_codec = AwgPacketCodec::new_with_keys(
-            &config,
-            local_public.as_bytes(),
-            peer_public.as_bytes(),
-        )
-        .unwrap();
+        let mut expected_codec =
+            AwgPacketCodec::new_with_keys(&config, local_public.as_bytes(), peer_public.as_bytes())
+                .unwrap();
         let expected = expected_codec
             .encode(&cookie_reply, DEFAULT_UDP_WINDOW, &mut FixedRng(0xff))
             .unwrap();
