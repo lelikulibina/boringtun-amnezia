@@ -31,7 +31,8 @@ README upstream предупреждает о реструктуризации �
 - UDP window peer начинается с 500 байт и увеличивается до максимального базового transport packet size. Для cookie reply используется фиксированное DefaultUdpWindow=500.
 - DisableCookies отключает выдачу cookie challenge, но не отключает проверку MAC1.
 - MAC1 key: BLAKE2s-256("mac1----" || receiver static public key); MAC1 — keyed BLAKE2s-128 по сообщению до поля MAC1. При изменении H1/H2 Rust пересчитывает MAC1 для случайного type ID, а при приёме канонизирует type ID и пересчитывает MAC1 для локального BoringTun.
-- MAC2 использует cookie secret из RateLimiter и зависит от полного исходного сообщения. Публичный API BoringTun не раскрывает cookie secret, поэтому random H1/H2 пока безопасно поддерживается только при DisableCookies=true на обеих сторонах.
+- MAC2 использует cookie secret из CookieReply и вычисляется keyed BLAKE2s-128 по сообщению до MAC2. Rust wrapper расшифровывает CookieReply с XChaCha20Poly1305, используя LABEL_COOKIE и последний отправленный MAC1, затем пересчитывает MAC2 после изменения H1/H2.
+- При random H1/H2 локальный RateLimiter переводится в режим без cookie challenge, чтобы он мог проверять MAC1 после canonicalization и не пытался проверить MAC2 на преобразованном заголовке. Удалённый peer может оставлять cookie challenge включённым: его CookieReply обрабатывается wrapper-ом.
 - В upstream issue #189 (https://github.com/amnezia-vpn/amneziawg-go/issues/189) зафиксированы опасные некорректные конфигурации: Jmin > Jmax и отрицательные CPS размеры. В Rust-реализации эти значения отклоняются заранее; дополнительно ограничены Jc и размер CPS random tags.
 
 Ограничения совместимости CPS: текущий модуль реализует безопасный разбор восьми Go-тегов, но строгая валидация аргументов намеренно отвергает часть неканонических строк, которые Go-парсер мог принять. Это будет уточнено differential-тестами.
