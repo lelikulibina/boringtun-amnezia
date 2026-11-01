@@ -123,6 +123,19 @@ fn establish_pair(
 }
 
 #[test]
+fn timer_polling_is_exposed_and_idle_tunnel_returns_done() {
+    let config = awg_config();
+    let (mut tunnel, _peer) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x29);
+    let mut buffer = [0u8; 2048];
+
+    assert_eq!(
+        tunnel.update_timers(&mut buffer, &mut rng).unwrap(),
+        AwgTunnelOutput::Done
+    );
+}
+
+#[test]
 fn undersized_destination_buffers_return_errors_instead_of_panicking() {
     let config = awg_config();
     let (mut tunnel, _peer) = tunnel_pair(&config);
