@@ -23,6 +23,16 @@ Rust-проект для поддержки стандартного WireGuard �
     cargo test --workspace --all-features
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+## Fuzzing
+
+Для локального запуска требуется nightly Rust и cargo-fuzz:
+
+    cargo install cargo-fuzz
+    cargo fuzz run awg_decode
+    cargo fuzz run cps_parse
+
+GitHub Actions запускает короткие fuzz-campaigns вручную и по еженедельному расписанию. Найденные сбои должны превращаться в обычные регрессионные unit-тесты.
+
 ## Upstream
 
 - Cloudflare BoringTun: https://github.com/cloudflare/boringtun
