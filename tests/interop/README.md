@@ -6,7 +6,7 @@ CI собирает тестовый peer из закреплённой реви
 
 - стандартный WireGuard: handshake, Cookie Reply/MAC2 retry при активном under-load, двусторонний IPv4 transport;
 - AmneziaWG 3.0: H1-H4 randomization, S1-S4, header protection, Cookie Reply/MAC2 retry и двусторонний IPv4 transport;
-- AmneziaWG 3.1: то же плюс RandomTrailers и ContentPaddingAddition.
+- AmneziaWG 3.1: то же плюс RandomTrailers и ContentPaddingAddition; отдельный сценарий DisableCookies=true проверяет, что Cookie Reply не отправляется даже при активном under-load.
 
 ## Детерминированный under-load
 
@@ -28,5 +28,5 @@ CI собирает тестовый peer из закреплённой реви
 
 - естественное достижение under-load через реальную очередь handshake;
 - ротация cookie и истечение cookie secret;
-- отдельный сценарий AWG 3.1 DisableCookies=true;
+- естественное достижение under-load через реальную очередь handshake;
 - golden vectors для всех вариантов пакетов и независимая проверка с upstream wireguard-go.
