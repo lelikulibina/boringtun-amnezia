@@ -174,7 +174,9 @@ fn send_awg_output(socket: &UdpSocket, peer: SocketAddr, output: AwgTunnelOutput
         }
         AwgTunnelOutput::WriteToNetworkBatch(packets) => {
             for packet in packets {
-                socket.send_to(&packet, peer).expect("send AWG UDP batch packet");
+                socket
+                    .send_to(&packet, peer)
+                    .expect("send AWG UDP batch packet");
             }
         }
         AwgTunnelOutput::Done => {}
@@ -185,7 +187,9 @@ fn send_awg_output(socket: &UdpSocket, peer: SocketAddr, output: AwgTunnelOutput
 fn send_wireguard_output(socket: &UdpSocket, peer: SocketAddr, output: TunnResult<'_>) {
     match output {
         TunnResult::WriteToNetwork(packet) => {
-            socket.send_to(packet, peer).expect("send WireGuard UDP packet");
+            socket
+                .send_to(packet, peer)
+                .expect("send WireGuard UDP packet");
         }
         TunnResult::Done => {}
         other => panic!("unexpected WireGuard tunnel output: {other:?}"),
@@ -217,7 +221,9 @@ fn receive_awg_ipv4(
             }
             AwgTunnelOutput::WriteToNetworkBatch(packets) => {
                 for packet in packets {
-                    socket.send_to(&packet, peer).expect("send AWG response batch");
+                    socket
+                        .send_to(&packet, peer)
+                        .expect("send AWG response batch");
                 }
             }
             AwgTunnelOutput::Done => {}
@@ -226,11 +232,7 @@ fn receive_awg_ipv4(
     }
 }
 
-fn receive_wireguard_ipv4(
-    socket: &UdpSocket,
-    peer: SocketAddr,
-    tunnel: &mut Tunn,
-) -> Vec<u8> {
+fn receive_wireguard_ipv4(socket: &UdpSocket, peer: SocketAddr, tunnel: &mut Tunn) -> Vec<u8> {
     let mut udp_buffer = [0u8; 2048];
     let mut tunnel_buffer = [0u8; 2048];
     loop {
@@ -238,7 +240,9 @@ fn receive_wireguard_ipv4(
         match tunnel.decapsulate(Some(peer.ip()), &datagram, &mut tunnel_buffer) {
             TunnResult::WriteToTunnelV4(packet, _) => return packet.to_vec(),
             TunnResult::WriteToNetwork(packet) => {
-                socket.send_to(packet, peer).expect("send WireGuard response");
+                socket
+                    .send_to(packet, peer)
+                    .expect("send WireGuard response");
             }
             TunnResult::Done => {}
             other => panic!("unexpected output while receiving WireGuard IPv4: {other:?}"),
@@ -279,12 +283,7 @@ fn run_wireguard_interop() {
     let go_secret = x25519::StaticSecret::from(go_secret_bytes);
     let rust_public = x25519::PublicKey::from(&rust_secret);
     let go_public = x25519::PublicKey::from(&go_secret);
-    let mut peer = GoPeer::spawn(
-        "wireguard",
-        &go_secret_bytes,
-        rust_public.as_bytes(),
-        local,
-    );
+    let mut peer = GoPeer::spawn("wireguard", &go_secret_bytes, rust_public.as_bytes(), local);
     let mut tunnel = Tunn::new(rust_secret, go_public, None, None, 1, None);
     let mut buffer = [0u8; 2048];
 
@@ -308,7 +307,10 @@ fn run_wireguard_interop() {
 
     let go_packet = ipv4_packet(2, 1);
     peer.send_tun_packet(&go_packet);
-    assert_eq!(receive_wireguard_ipv4(&socket, peer.address, &mut tunnel), go_packet);
+    assert_eq!(
+        receive_wireguard_ipv4(&socket, peer.address, &mut tunnel),
+        go_packet
+    );
 }
 
 fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
@@ -323,23 +325,10 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let go_secret = x25519::StaticSecret::from(go_secret_bytes);
     let rust_public = x25519::PublicKey::from(&rust_secret);
     let go_public = x25519::PublicKey::from(&go_secret);
-    let mut peer = GoPeer::spawn(
-        go_mode,
-        &go_secret_bytes,
-        rust_public.as_bytes(),
-        local,
-    );
+    let mut peer = GoPeer::spawn(go_mode, &go_secret_bytes, rust_public.as_bytes(), local);
     let config = awg_config(is_31);
-    let mut tunnel = AwgTunnel::new(
-        mode,
-        rust_secret,
-        go_public,
-        None,
-        None,
-        1,
-        &config,
-    )
-    .expect("create Rust AWG tunnel");
+    let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public, None, None, 1, &config)
+        .expect("create Rust AWG tunnel");
     let mut rng = FixedRng(0x51);
     let mut buffer = [0u8; 2048];
 
@@ -350,12 +339,7 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let mut udp_buffer = [0u8; 2048];
     let response = receive_udp(&socket, &mut udp_buffer);
     let output = tunnel
-        .decapsulate(
-            Some(peer.address.ip()),
-            &response,
-            &mut buffer,
-            &mut rng,
-        )
+        .decapsulate(Some(peer.address.ip()), &response, &mut buffer, &mut rng)
         .expect("decode Go AWG handshake response");
     send_awg_output(&socket, peer.address, output);
 
