@@ -8,13 +8,13 @@ Rust-проект для поддержки стандартного WireGuard �
 - **AWG framing:** реализованы H1-H4 ranges, S1-S4 padding и ChaCha20 header protection. Для handshake при изменении H1/H2 пересчитывается MAC1; для transport защищаются только 16 байт заголовка.
 - **AWG tunnel wrapper:** добавлена обёртка BoringTun с двусторонним handshake/transport, I1-I5/Junk preambles и MTU-aware content padding.
 - **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies. Для handshake/cookie trailer добавляется во внешний датаграмм; для transport нулевые байты добавляются в plaintext до AEAD и обрезаются по длине внутреннего IP-пакета.
-- **H1/H2 ограничение:** random ranges для handshake требуют DisableCookies=true на обеих сторонах. Это позволяет пересчитать MAC1, но не требует закрытого cookie secret для MAC2. Полная MAC2/under-load совместимость с cookie challenges ещё не реализована.
+- **H1/H2 и MAC2:** при random H1/H2 локальный rate limiter автоматически переводится в режим без cookie challenge, чтобы BoringTun мог проверять MAC1 после canonicalization. Cookie replies от удалённого peer расшифровываются, а MAC2 пересчитывается с полученным cookie. Удалённый peer может сохранять обычную cookie-защиту.
 - **Стандартное AWG padding:** при выключенных ContentPaddingAddition/RandomTrailers transport plaintext дополняется до кратности 16 с учётом MTU. MTU по умолчанию 1420; его можно изменить через `AwgTunnel::set_mtu`.
 - **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки.
 - **Ограничения:** кастомные таймеры и padding для внутренних keepalive-пакетов BoringTun пока не реализованы.
 - **Сетевой/TUN стек:** не входит в библиотечную обёртку.
 
-Полная совместимость с amneziawg-go 3.0/3.1 ещё не заявляется: требуются differential и двусторонние interoperability-тесты, особенно under-load/MAC2.
+Полная совместимость с amneziawg-go 3.0/3.1 ещё не заявляется: требуются differential и двусторонние interoperability-тесты, особенно cookie/under-load.
 
 ## Сборка и тесты
 
