@@ -12,6 +12,10 @@ pub mod wireguard {
     pub use boringtun::x25519;
 }
 
+/// Кодек базового AWG packet framing (S1-S4 и header protection).
+#[cfg(feature = "amneziawg")]
+pub mod awg;
+
 /// CPS-парсер и генератор сигнатурных пакетов AmneziaWG.
 #[cfg(feature = "amneziawg")]
 pub mod signature;
