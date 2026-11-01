@@ -605,7 +605,7 @@ mod tests {
         config.padding.s2 = Some(8);
         config.padding.s3 = Some(16);
         config.padding.s4 = Some(20);
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
 
         for kind in [
             MessageKind::HandshakeInitiation,
@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn round_trips_all_message_types_with_chacha20_header_protection() {
-        let codec = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(true)).unwrap();
         for kind in [
             MessageKind::HandshakeInitiation,
             MessageKind::HandshakeResponse,
@@ -648,7 +648,7 @@ mod tests {
     fn all_zero_header_protection_key_disables_the_cipher() {
         let mut config = AmneziaConfig::default();
         config.headers.header_protection_key = Some([0; 32]);
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(9)).unwrap();
         assert_eq!(codec.decode(&encoded).unwrap(), packet);
@@ -691,7 +691,7 @@ mod tests {
         let mut config = base_config(false);
         config.headers.h3 = Some(ValueRange { min: 50, max: 60 });
         config.headers.h4 = Some(ValueRange { min: 70, max: 80 });
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
 
         for kind in [MessageKind::CookieReply, MessageKind::Transport] {
             let packet = canonical_packet(kind);
@@ -704,7 +704,7 @@ mod tests {
     fn random_trailers_are_added_to_handshake_and_stripped_on_receive() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
         assert!(encoded.len() > codec.padding[0] + packet.len());
@@ -715,7 +715,7 @@ mod tests {
     fn cookie_reply_random_trailer_uses_the_default_udp_window() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::CookieReply);
         let encoded = codec.encode(&packet, 4_000, &mut FixedRng(0x31)).unwrap();
         assert!(encoded.len() <= DEFAULT_UDP_WINDOW);
@@ -726,7 +726,7 @@ mod tests {
     fn random_trailers_are_not_appended_outside_transport_ciphertext() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        let codec = AwgPacketCodec::new(&config).unwrap();
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::Transport);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
         assert_eq!(encoded.len(), codec.padding[3] + packet.len());
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn rejects_malformed_and_oversized_datagrams() {
-        let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
             codec.decode(&[0, 1, 2]),
             Err(PacketCodecError::InvalidDatagram)
@@ -748,7 +748,7 @@ mod tests {
 
     #[test]
     fn rejects_noncanonical_packets_on_encode() {
-        let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
+        let mut codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
             codec.encode(&[1, 2, 3, 4], 500, &mut FixedRng(1)),
             Err(PacketCodecError::InvalidCanonicalPacket)
