@@ -36,7 +36,8 @@
 - [x] ContentPaddingAddition и RandomTrailers для handshake/cookie/обычного transport encapsulate.
 - [x] Стандартное дополнение transport plaintext до кратности 16 с учётом MTU.
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
-- [ ] MAC2 cookie challenge interoperability при random H1/H2; пока требуется DisableCookies на обоих peers.
+- [x] Внутренний MAC2 cookie flow: расшифровка Cookie Reply, сохранение cookies, проверка исходного MAC2 и безопасный пересчёт после канонизации.
+- [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation.
 - [x] Экспортировать `update_timers` и проводить результаты timer polling через AWG framing, включая I1-I5/junk при повторном handshake.
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Кастомные таймеры.
