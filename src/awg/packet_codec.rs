@@ -26,6 +26,15 @@ enum MessageKind {
 }
 
 impl MessageKind {
+    fn message_size(self) -> usize {
+        match self {
+            Self::HandshakeInitiation => 148,
+            Self::HandshakeResponse => 92,
+            Self::CookieReply => 64,
+            Self::Transport => 32,
+        }
+    }
+
     fn type_id(self) -> u32 {
         match self {
             Self::HandshakeInitiation => 1,
@@ -100,6 +109,7 @@ impl std::error::Error for PacketCodecError {}
 pub struct AwgPacketCodec {
     padding: [usize; 4],
     header_protection_key: Option<[u8; 32]>,
+    random_trailers: bool,
 }
 
 impl AwgPacketCodec {
@@ -129,15 +139,6 @@ impl AwgPacketCodec {
             }
         }
 
-        if config.padding.content_padding.is_some() {
-            return Err(PacketCodecError::UnsupportedOption("content_padding"));
-        }
-        if config.junk.count > 0 {
-            return Err(PacketCodecError::UnsupportedOption("Jc/Jmin/Jmax"));
-        }
-        if config.signature_packets.iter().any(Option::is_some) {
-            return Err(PacketCodecError::UnsupportedOption("I1-I5 transport"));
-        }
         if config.timings.rekey_after_time.is_some()
             || config.timings.rekey_timeout.is_some()
             || config.timings.reject_after_time.is_some()
@@ -145,9 +146,6 @@ impl AwgPacketCodec {
             || config.timings.max_handshake_attempts.is_some()
         {
             return Err(PacketCodecError::UnsupportedOption("timing overrides"));
-        }
-        if config.random_trailers {
-            return Err(PacketCodecError::UnsupportedOption("RandomTrailers"));
         }
         if config.disable_cookies {
             return Err(PacketCodecError::UnsupportedOption("DisableCookies"));
@@ -176,6 +174,7 @@ impl AwgPacketCodec {
         Ok(Self {
             padding,
             header_protection_key,
+            random_trailers: config.random_trailers,
         })
     }
 
@@ -186,27 +185,45 @@ impl AwgPacketCodec {
     pub fn encode<R: RngCore + CryptoRng>(
         &self,
         canonical_packet: &[u8],
+        udp_window: usize,
         rng: &mut R,
     ) -> Result<Vec<u8>, PacketCodecError> {
         let parsed = Tunn::parse_incoming_packet(canonical_packet)
             .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
         let kind = MessageKind::from_packet(&parsed);
         let padding_len = self.padding[kind.index()];
+        let message_len = canonical_packet.len();
+        let trailer_len = if self.random_trailers && kind != MessageKind::Transport {
+            let space = udp_window.saturating_sub(padding_len + message_len);
+            random_below(rng, space)
+        } else {
+            0
+        };
         let total_len = padding_len
-            .checked_add(canonical_packet.len())
+            .checked_add(message_len)
+            .and_then(|length| length.checked_add(trailer_len))
             .filter(|length| *length <= MAX_UDP_PAYLOAD)
             .ok_or(PacketCodecError::PacketTooLarge)?;
 
         let mut datagram = vec![0u8; total_len];
         rng.fill_bytes(&mut datagram[..padding_len]);
-        datagram[padding_len..].copy_from_slice(canonical_packet);
+        let message_end = padding_len + message_len;
+        datagram[padding_len..message_end].copy_from_slice(canonical_packet);
 
         if let Some(key) = self.header_protection_key {
             let nonce: [u8; HEADER_PROTECTION_NONCE_SIZE] = datagram
                 [..HEADER_PROTECTION_NONCE_SIZE]
                 .try_into()
                 .expect("padding length is validated by the codec constructor");
-            Self::apply_header_protection(key, &nonce, kind, &mut datagram[padding_len..])?;
+            Self::apply_header_protection(
+                key,
+                &nonce,
+                kind,
+                &mut datagram[padding_len..message_end],
+            )?;
+        }
+        if trailer_len > 0 {
+            rng.fill_bytes(&mut datagram[message_end..]);
         }
 
         Ok(datagram)
@@ -233,6 +250,13 @@ impl AwgPacketCodec {
             }
 
             let mut candidate = datagram[padding_len..].to_vec();
+            if self.random_trailers && kind != MessageKind::Transport {
+                let expected_size = kind.message_size();
+                if candidate.len() < expected_size {
+                    continue;
+                }
+                candidate.truncate(expected_size);
+            }
             if let Some(key) = self.header_protection_key {
                 let nonce = &datagram[..HEADER_PROTECTION_NONCE_SIZE];
                 if Self::unprotect_candidate(key, nonce, kind, &mut candidate).is_err() {
@@ -252,6 +276,16 @@ impl AwgPacketCodec {
         }
 
         Err(PacketCodecError::InvalidDatagram)
+    }
+
+    /// S4 padding, используемый при создании transport datagram.
+    pub fn transport_padding(&self) -> usize {
+        self.padding[MessageKind::Transport.index()]
+    }
+
+    /// Включены ли RandomTrailers в конфигурации.
+    pub fn random_trailers_enabled(&self) -> bool {
+        self.random_trailers
     }
 
     fn apply_header_protection(
@@ -326,7 +360,21 @@ mod tests {
         }
     }
 
-    fn canonical_packet(kind: MessageKind) -> Vec<u8> {
+    fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
+    if upper <= 1 {
+        return 0;
+    }
+    let upper = upper as u32;
+    let threshold = upper.wrapping_neg() % upper;
+    loop {
+        let value = rng.next_u32();
+        if value >= threshold {
+            return (value % upper) as usize;
+        }
+    }
+}
+
+fn canonical_packet(kind: MessageKind) -> Vec<u8> {
         let length = match kind {
             MessageKind::HandshakeInitiation => 148,
             MessageKind::HandshakeResponse => 92,
@@ -367,7 +415,7 @@ mod tests {
         ] {
             let packet = canonical_packet(kind);
             let mut rng = FixedRng(0xa5);
-            let encoded = codec.encode(&packet, &mut rng).unwrap();
+            let encoded = codec.encode(&packet, 500, &mut rng).unwrap();
             assert_eq!(encoded.len(), packet.len() + codec.padding[kind.index()]);
             if kind == MessageKind::Transport {
                 assert_eq!(
@@ -390,7 +438,7 @@ mod tests {
         ] {
             let packet = canonical_packet(kind);
             let mut rng = FixedRng(0x7b);
-            let encoded = codec.encode(&packet, &mut rng).unwrap();
+            let encoded = codec.encode(&packet, 500, &mut rng).unwrap();
             assert_ne!(&encoded[12..16], &packet[..4]);
             assert_eq!(codec.decode(&encoded).unwrap(), packet);
         }
@@ -429,20 +477,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unimplemented_awg_features_instead_of_silently_ignoring_them() {
-        let mut config = base_config(false);
-        config.junk.count = 2;
-        assert_eq!(
-            AwgPacketCodec::new(&config).err(),
-            Some(PacketCodecError::UnsupportedOption("Jc/Jmin/Jmax"))
-        );
-
+    fn random_trailers_are_added_to_handshake_and_stripped_on_receive() {
         let mut config = base_config(false);
         config.random_trailers = true;
-        assert_eq!(
-            AwgPacketCodec::new(&config).err(),
-            Some(PacketCodecError::UnsupportedOption("RandomTrailers"))
-        );
+        let codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::HandshakeInitiation);
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
+        assert!(encoded.len() > codec.padding[0] + packet.len());
+        assert_eq!(codec.decode(&encoded).unwrap(), packet);
+    }
+
+    #[test]
+    fn random_trailers_are_not_appended_outside_transport_ciphertext() {
+        let mut config = base_config(false);
+        config.random_trailers = true;
+        let codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::Transport);
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
+        assert_eq!(encoded.len(), codec.padding[3] + packet.len());
+        assert_eq!(codec.decode(&encoded).unwrap(), packet);
     }
 
     #[test]
@@ -475,7 +528,7 @@ mod tests {
         let receiver = AwgPacketCodec::new(&wrong).unwrap();
 
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
-        let encoded = sender.encode(&packet, &mut FixedRng(3)).unwrap();
+        let encoded = sender.encode(&packet, 500, &mut FixedRng(3)).unwrap();
         assert_eq!(
             receiver.decode(&encoded),
             Err(PacketCodecError::InvalidDatagram)
