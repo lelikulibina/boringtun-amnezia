@@ -158,7 +158,10 @@ impl EngineConfig {
                 ];
                 for range in ranges.into_iter().flatten() {
                     if range.min > range.max {
-                        return Err(ConfigError::InvalidRange { min: range.min, max: range.max });
+                        return Err(ConfigError::InvalidRange {
+                            min: range.min,
+                            max: range.max,
+                        });
                     }
                 }
 
@@ -219,12 +222,25 @@ pub enum ConfigError {
 impl core::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::InvalidRange { min, max } => write!(f, "некорректный диапазон: минимум {min} больше максимума {max}"),
-            Self::MissingAmneziaOptions => f.write_str("для режима AmneziaWG необходима конфигурация AWG"),
-            Self::AmneziaOptionsForWireGuard => f.write_str("параметры AmneziaWG нельзя передавать в режиме WireGuard"),
-            Self::InvalidJunkPacketBounds { min, max } => write!(f, "некорректный размер junk-пакетов: {min}..{max}"),
-            Self::HeaderProtectionRequiresAllPaddingAtLeast12 => f.write_str("защита заголовков требует S1, S2, S3 и S4 не меньше 12 байт"),
-            Self::FeatureRequiresAmneziaWg31 => f.write_str("random_trailers и disable_cookies доступны только в AmneziaWG 3.1"),
+            Self::InvalidRange { min, max } => write!(
+                f,
+                "некорректный диапазон: минимум {min} больше максимума {max}"
+            ),
+            Self::MissingAmneziaOptions => {
+                f.write_str("для режима AmneziaWG необходима конфигурация AWG")
+            }
+            Self::AmneziaOptionsForWireGuard => {
+                f.write_str("параметры AmneziaWG нельзя передавать в режиме WireGuard")
+            }
+            Self::InvalidJunkPacketBounds { min, max } => {
+                write!(f, "некорректный размер junk-пакетов: {min}..{max}")
+            }
+            Self::HeaderProtectionRequiresAllPaddingAtLeast12 => {
+                f.write_str("защита заголовков требует S1, S2, S3 и S4 не меньше 12 байт")
+            }
+            Self::FeatureRequiresAmneziaWg31 => {
+                f.write_str("random_trailers и disable_cookies доступны только в AmneziaWG 3.1")
+            }
         }
     }
 }
@@ -249,19 +265,31 @@ mod tests {
 
     #[test]
     fn value_range_rejects_reversed_bounds() {
-        assert_eq!(ValueRange::new(9, 3), Err(ConfigError::InvalidRange { min: 9, max: 3 }));
+        assert_eq!(
+            ValueRange::new(9, 3),
+            Err(ConfigError::InvalidRange { min: 9, max: 3 })
+        );
     }
 
     #[test]
     fn plain_wireguard_rejects_amnezia_options() {
-        let config = EngineConfig { mode: ProtocolMode::WireGuard, amnezia: Some(AmneziaConfig::default()) };
-        assert_eq!(config.validate(), Err(ConfigError::AmneziaOptionsForWireGuard));
+        let config = EngineConfig {
+            mode: ProtocolMode::WireGuard,
+            amnezia: Some(AmneziaConfig::default()),
+        };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::AmneziaOptionsForWireGuard)
+        );
     }
 
     #[test]
     fn awg_modes_require_explicit_configuration() {
         for mode in [ProtocolMode::AmneziaWg30, ProtocolMode::AmneziaWg31] {
-            let config = EngineConfig { mode, amnezia: None };
+            let config = EngineConfig {
+                mode,
+                amnezia: None,
+            };
             assert_eq!(config.validate(), Err(ConfigError::MissingAmneziaOptions));
         }
     }
@@ -274,11 +302,20 @@ mod tests {
             let mut awg = AmneziaConfig::default();
             awg.headers.header_protection_key = Some([0x42; 32]);
             awg.padding = PacketPadding {
-                s1: values[0], s2: values[1], s3: values[2], s4: values[3],
+                s1: values[0],
+                s2: values[1],
+                s3: values[2],
+                s4: values[3],
                 content_padding: None,
             };
-            let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
-            assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12));
+            let config = EngineConfig {
+                mode: ProtocolMode::AmneziaWg30,
+                amnezia: Some(awg),
+            };
+            assert_eq!(
+                config.validate(),
+                Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12)
+            );
         }
     }
 
@@ -290,11 +327,20 @@ mod tests {
             let mut awg = AmneziaConfig::default();
             awg.headers.header_protection_key = Some([0x42; 32]);
             awg.padding = PacketPadding {
-                s1: values[0], s2: values[1], s3: values[2], s4: values[3],
+                s1: values[0],
+                s2: values[1],
+                s3: values[2],
+                s4: values[3],
                 content_padding: None,
             };
-            let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
-            assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12));
+            let config = EngineConfig {
+                mode: ProtocolMode::AmneziaWg30,
+                amnezia: Some(awg),
+            };
+            assert_eq!(
+                config.validate(),
+                Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12)
+            );
         }
     }
 
@@ -303,42 +349,78 @@ mod tests {
         let mut awg = AmneziaConfig::default();
         awg.headers.header_protection_key = Some([0x42; 32]);
         awg.padding = PacketPadding {
-            s1: Some(12), s2: Some(12), s3: Some(12), s4: Some(12),
+            s1: Some(12),
+            s2: Some(12),
+            s3: Some(12),
+            s4: Some(12),
             content_padding: None,
         };
-        let config = EngineConfig { mode: ProtocolMode::AmneziaWg31, amnezia: Some(awg) };
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg31,
+            amnezia: Some(awg),
+        };
         assert_eq!(config.validate(), Ok(()));
     }
 
     #[test]
     fn awg_31_flags_are_rejected_in_awg_30() {
         for (random_trailers, disable_cookies) in [(true, false), (false, true), (true, true)] {
-            let awg = AmneziaConfig { random_trailers, disable_cookies, ..AmneziaConfig::default() };
-            let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
-            assert_eq!(config.validate(), Err(ConfigError::FeatureRequiresAmneziaWg31));
+            let awg = AmneziaConfig {
+                random_trailers,
+                disable_cookies,
+                ..AmneziaConfig::default()
+            };
+            let config = EngineConfig {
+                mode: ProtocolMode::AmneziaWg30,
+                amnezia: Some(awg),
+            };
+            assert_eq!(
+                config.validate(),
+                Err(ConfigError::FeatureRequiresAmneziaWg31)
+            );
         }
     }
 
     #[test]
     fn awg_31_flags_are_accepted_in_awg_31() {
-        let awg = AmneziaConfig { random_trailers: true, disable_cookies: true, ..AmneziaConfig::default() };
-        let config = EngineConfig { mode: ProtocolMode::AmneziaWg31, amnezia: Some(awg) };
+        let awg = AmneziaConfig {
+            random_trailers: true,
+            disable_cookies: true,
+            ..AmneziaConfig::default()
+        };
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg31,
+            amnezia: Some(awg),
+        };
         assert_eq!(config.validate(), Ok(()));
     }
 
     #[test]
     fn junk_packet_bounds_are_validated() {
         let awg = AmneziaConfig {
-            junk: JunkConfig { count: 3, min_size: 80, max_size: 40 },
+            junk: JunkConfig {
+                count: 3,
+                min_size: 80,
+                max_size: 40,
+            },
             ..AmneziaConfig::default()
         };
-        let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
-        assert_eq!(config.validate(), Err(ConfigError::InvalidJunkPacketBounds { min: 80, max: 40 }));
+        let config = EngineConfig {
+                mode: ProtocolMode::AmneziaWg30,
+                amnezia: Some(awg),
+            };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::InvalidJunkPacketBounds { min: 80, max: 40 })
+        );
     }
 
     #[test]
     fn awg_accepts_empty_optional_obfuscation_settings() {
-        let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(AmneziaConfig::default()) };
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(AmneziaConfig::default()),
+        };
         assert_eq!(config.validate(), Ok(()));
     }
 }
