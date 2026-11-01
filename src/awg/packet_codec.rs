@@ -91,6 +91,8 @@ pub enum PacketCodecError {
     MacComputationFailed,
     /// Не удалось расшифровать cookie reply.
     CookieDecryptionFailed,
+    /// Не удалось расшифровать cookie reply.
+    CookieDecryptionFailed,
 }
 
 impl fmt::Display for PacketCodecError {
@@ -122,6 +124,7 @@ impl fmt::Display for PacketCodecError {
                 f.write_str("рандомизация H1/H2 требует DisableCookies на обоих peers")
             }
             Self::MacComputationFailed => f.write_str("не удалось пересчитать MAC1/MAC2"),
+            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать cookie reply"),
             Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать cookie reply"),
         }
     }
@@ -202,12 +205,10 @@ impl AwgPacketCodec {
             config.headers.h3.unwrap_or(ValueRange { min: 3, max: 3 }),
             config.headers.h4.unwrap_or(ValueRange { min: 4, max: 4 }),
         ];
-        for (index, range) in header_ranges.iter().enumerate() {
+        for range in &header_ranges {
             if range.min > range.max {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
             }
-            let canonical = index as u32 + 1;
-
         }
         for left_index in 0..header_ranges.len() {
             for right_index in (left_index + 1)..header_ranges.len() {
@@ -412,11 +413,33 @@ impl AwgPacketCodec {
                 }
             }
 
+            let handshake_context = if matches!(
+                kind,
+                MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
+            ) {
+                if let Some(cookie) = self.read_cookie {
+                    if recompute_mac2(&mut candidate, &cookie).is_err() {
+                        continue;
+                    }
+                }
+                let mac1_offset = candidate.len() - 32;
+                let sender_index = u32::from_le_bytes(candidate[4..8].try_into().unwrap());
+                let mac1: [u8; 16] = candidate[mac1_offset..mac1_offset + 16]
+                    .try_into()
+                    .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
+                Some((sender_index, mac1))
+            } else {
+                None
+            };
+
             let parsed = match Tunn::parse_incoming_packet(&candidate) {
                 Ok(packet) => packet,
                 Err(_) => continue,
             };
             if MessageKind::from_packet(&parsed) == kind {
+                if let Some(context) = handshake_context {
+                    self.last_inbound_handshake_context = Some(context);
+                }
                 return Ok(candidate);
             }
         }
@@ -431,6 +454,39 @@ impl AwgPacketCodec {
 
     pub(crate) fn has_write_cookie(&self) -> bool {
         self.write_cookie.is_some()
+    }
+
+    fn capture_issued_cookie(&mut self, packet: &[u8]) -> Result<(), PacketCodecError> {
+        let (Some(key), Some((sender_index, last_mac1))) =
+            (self.peer_cookie_key, self.last_inbound_handshake_context)
+        else {
+            return Ok(());
+        };
+        if packet.len() != 64 || u32::from_le_bytes(packet[..4].try_into().unwrap()) != 3 {
+            return Ok(());
+        }
+        let receiver_index = u32::from_le_bytes(packet[4..8].try_into().unwrap());
+        if receiver_index != sender_index {
+            return Ok(());
+        }
+
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let nonce = XNonce::from_slice(&packet[8..32]);
+        let plaintext = cipher
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: &packet[32..64],
+                    aad: &last_mac1,
+                },
+            )
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let cookie: [u8; 16] = plaintext
+            .try_into()
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        self.read_cookie = Some(cookie);
+        Ok(())
     }
 
     /// Извлекает контекст последнего исходящего handshake для CookieReply.
@@ -553,7 +609,7 @@ fn recompute_mac2(packet: &mut [u8], cookie: &[u8; 16]) -> Result<(), PacketCode
         .checked_sub(16)
         .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
     let mut mac: Blake2sMac<U16> =
-        Blake2sMac::new_from_slice(cookie).map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
+        Blake2sMac::new_from_slice(cookie).map_err(|_| PacketCodecError::MacComputationFailed)?;
     blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
     let digest = mac.finalize_fixed();
     packet[mac2_offset..].copy_from_slice(&digest);
