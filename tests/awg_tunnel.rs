@@ -183,9 +183,8 @@ fn default_awg_transport_padding_aligns_plaintext_to_sixteen_bytes() {
 }
 
 #[test]
-fn awg_31_random_trailers_and_content_padding_round_trip() {
+fn awg_31_content_padding_addition_round_trip() {
     let mut config = awg_config();
-    config.random_trailers = true;
     config.disable_cookies = true;
     config.padding.content_padding = Some(ValueRange { min: 5, max: 9 });
     let (mut initiator, mut responder) = tunnel_pair(&config);
@@ -199,6 +198,32 @@ fn awg_31_random_trailers_and_content_padding_round_trip() {
             .encapsulate(&packet, &mut buffer, &mut rng)
             .unwrap(),
     );
+    assert_eq!(
+        responder
+            .decapsulate(None, &encrypted, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::WriteToTunnelV4(packet, Ipv4Addr::new(10, 0, 0, 1))
+    );
+}
+
+#[test]
+fn awg_31_random_trailers_pad_transport_plaintext_before_encryption() {
+    let mut config = awg_config();
+    config.random_trailers = true;
+    config.disable_cookies = true;
+    let (mut initiator, mut responder) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x17);
+    let mut buffer = [0u8; 2048];
+    establish_pair(&mut initiator, &mut responder, &mut rng, &mut buffer);
+
+    let packet = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
+    let encrypted = network_packet(
+        initiator
+            .encapsulate(&packet, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    assert!(encrypted.len() > 64);
+    assert!(encrypted.len() <= 500);
     assert_eq!(
         responder
             .decapsulate(None, &encrypted, &mut buffer, &mut rng)
