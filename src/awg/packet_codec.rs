@@ -682,6 +682,42 @@ mod tests {
     }
 
     #[test]
+    fn mac1_key_and_tag_match_wireguard_blake2s_vector() {
+        let public_key = [0x11; 32];
+        let key = derive_mac1_key(&public_key);
+        assert_eq!(
+            key,
+            [
+                0x10, 0xa6, 0xe4, 0x4e, 0x50, 0x59, 0xda, 0x36, 0x42, 0x22, 0x63, 0x66, 0xd6,
+                0x89, 0x88, 0x2e, 0x90, 0x82, 0xfe, 0xbd, 0xaa, 0x0b, 0x14, 0xdb, 0xaa, 0x8a,
+                0x0d, 0x90, 0x6b, 0xa1, 0xb0, 0xeb,
+            ]
+        );
+
+        let mut packet = vec![0u8; 148];
+        packet[..4].copy_from_slice(&1u32.to_le_bytes());
+        recompute_mac1(&mut packet, &key).unwrap();
+        assert_eq!(
+            &packet[116..132],
+            &[0xa6, 0xc6, 0xc4, 0x2e, 0xf6, 0x37, 0x37, 0xed, 0xd2, 0x41, 0x91, 0xe5, 0x89, 0x2e, 0x97, 0x86]
+        );
+    }
+
+    #[test]
+    fn mac2_uses_cookie_key_over_message_and_mac1_prefix() {
+        let cookie = [0x42; 16];
+        let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
+        let mac1_offset = packet.len() - 32;
+        packet[mac1_offset..mac1_offset + 16].fill(0x24);
+        recompute_mac2(&mut packet, &cookie).unwrap();
+
+        let mut expected: Blake2sMac<U16> = Blake2sMac::new_from_slice(&cookie).unwrap();
+        blake2::digest::Update::update(&mut expected, &packet[..packet.len() - 16]);
+        let expected = expected.finalize_fixed();
+        assert_eq!(&packet[packet.len() - 16..], &expected[..]);
+    }
+
+    #[test]
     fn randomized_h1_h2_require_mac1_keys() {
         let mut config = base_config(false);
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
