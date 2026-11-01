@@ -545,6 +545,84 @@ impl AwgPacketCodec {
         Err(PacketCodecError::InvalidDatagram)
     }
 
+    fn capture_issued_cookie(&mut self, packet: &[u8]) -> Result<(), PacketCodecError> {
+        let (Some(key), Some((sender_index, last_mac1))) =
+            (self.local_cookie_key, self.last_inbound_handshake_context)
+        else {
+            return Ok(());
+        };
+        if packet.len() != 64 || u32::from_le_bytes(packet[..4].try_into().unwrap()) != 3 {
+            return Ok(());
+        }
+        let receiver_index = u32::from_le_bytes(packet[4..8].try_into().unwrap());
+        if receiver_index != sender_index {
+            return Ok(());
+        }
+
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let plaintext = cipher
+            .decrypt(
+                XNonce::from_slice(&packet[8..32]),
+                Payload {
+                    msg: &packet[32..64],
+                    aad: &last_mac1,
+                },
+            )
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let cookie: [u8; 16] = plaintext
+            .as_slice()
+            .try_into()
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        self.read_cookie = Some(cookie);
+        self.last_inbound_handshake_context = None;
+        Ok(())
+    }
+
+    fn capture_cookie_reply(&mut self, packet: &[u8]) -> Result<(), PacketCodecError> {
+        let (Some(key), Some((sender_index, random_mac1, canonical_mac1))) =
+            (self.peer_cookie_key, self.last_outbound_handshake_context)
+        else {
+            return Ok(());
+        };
+        if packet.len() != 64 || u32::from_le_bytes(packet[..4].try_into().unwrap()) != 3 {
+            return Ok(());
+        }
+        let receiver_index = u32::from_le_bytes(packet[4..8].try_into().unwrap());
+        if receiver_index != sender_index {
+            return Ok(());
+        }
+
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let nonce = XNonce::from_slice(&packet[8..32]);
+        let plaintext = cipher
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: &packet[32..64],
+                    aad: &random_mac1,
+                },
+            )
+            .or_else(|_| {
+                cipher.decrypt(
+                    nonce,
+                    Payload {
+                        msg: &packet[32..64],
+                        aad: &canonical_mac1,
+                    },
+                )
+            })
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let cookie: [u8; 16] = plaintext
+            .as_slice()
+            .try_into()
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        self.write_cookie = Some(cookie);
+        self.last_outbound_handshake_context = None;
+        Ok(())
+    }
+
     /// S4 padding, используемый при создании transport datagram.
     pub fn transport_padding(&self) -> usize {
         self.padding[MessageKind::Transport.index()]
