@@ -28,11 +28,12 @@
 - [x] CPS parser/renderer I1-I5 с тестами восьми тегов Go.
 - [ ] Differential tests конфигурации и CPS против amneziawg-go.
 
-### Этап C — базовый AWG packet codec
+### Этап C — базовый AWG packet pipeline
 - [x] S1-S4 padding для всех четырёх типов WG сообщений.
 - [x] ChaCha20 header protection: handshake/cookie целиком, transport header (16 байт) отдельно.
 - [x] Строгая проверка входных datagram через BoringTun parser.
-- [x] Отказ от неподдерживаемых функций вместо их молчаливого игнорирования.
+- [x] Wrapper для кодирования/декодирования сетевых пакетов вокруг BoringTun Tunn.
+- [x] Двусторонний интеграционный тест AWG handshake и IPv4 transport.
 - [ ] Произвольные H1-H4 и корректный пересчёт MAC1/MAC2.
 - [ ] Junk/I packet отправка, content padding, RandomTrailers и кастомные таймеры.
 - [ ] Golden vectors и двусторонняя совместимость AWG 3.0 Rust ↔ Go.
@@ -65,4 +66,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая AWG реализация покрывает внешний framing S1-S4 и header protection при стандартных H type IDs; полная совместимость ещё не подтверждена.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущий AWG pipeline покрывает S1-S4 и header protection при стандартных H type IDs; полная совместимость с AmneziaWG Go ещё не подтверждена.
