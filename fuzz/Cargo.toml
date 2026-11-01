@@ -1,0 +1,29 @@
+[package]
+name = "boringtun-amnezia-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+boringtun-amnezia = { path = "..", features = ["amneziawg-3-1"] }
+
+[[bin]]
+name = "awg_decode"
+path = "fuzz_targets/awg_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cps_parse"
+path = "fuzz_targets/cps_parse.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
