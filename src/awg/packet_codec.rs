@@ -948,12 +948,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_randomized_handshake_headers_until_mac_recalculation_is_available() {
+    fn randomized_handshake_headers_require_mac1_keys()
         let mut config = base_config(false);
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
-            Some(PacketCodecError::HeaderRandomizationRequiresDisableCookies)
+            Some(PacketCodecError::MissingMac1Keys)
         );
     }
 
@@ -974,7 +974,7 @@ mod tests {
     }
 
     #[test]
-    fn randomized_h1_h2_require_disable_cookies_and_mac1_keys() {
+    fn randomized_h1_h2_require_mac1_keys()
         let mut config = base_config(false);
         config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
