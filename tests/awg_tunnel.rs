@@ -169,6 +169,7 @@ fn awg_framed_handshake_and_transport_work_in_both_directions() {
 fn awg_31_random_trailers_and_content_padding_round_trip() {
     let mut config = awg_config();
     config.random_trailers = true;
+    config.disable_cookies = true;
     config.padding.content_padding = Some(ValueRange { min: 5, max: 9 });
     let (mut initiator, mut responder) = tunnel_pair(&config);
     let mut rng = FixedRng(0x3c);
