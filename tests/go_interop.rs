@@ -403,7 +403,10 @@ fn run_wireguard_interop() {
                 };
             }
             2 => {
-                assert!(cookie_challenge_received, "Go peer skipped the expected MAC2 cookie challenge");
+                assert!(
+                    cookie_challenge_received,
+                    "Go peer skipped the expected MAC2 cookie challenge"
+                );
                 send_wireguard_output(&socket, peer.address, result);
                 established = true;
                 break;
@@ -411,7 +414,10 @@ fn run_wireguard_interop() {
             other => panic!("unexpected WireGuard handshake response type: {other}"),
         }
     }
-    assert!(cookie_challenge_received, "Go peer did not issue a MAC2 cookie challenge");
+    assert!(
+        cookie_challenge_received,
+        "Go peer did not issue a MAC2 cookie challenge"
+    );
     assert!(
         established,
         "WireGuard handshake did not complete after MAC2 retry"
@@ -477,14 +483,20 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
                     .expect("format AWG MAC2 cookie retry");
             }
             other => {
-                assert!(cookie_challenge_received, "Go AWG peer skipped the expected MAC2 cookie challenge");
+                assert!(
+                    cookie_challenge_received,
+                    "Go AWG peer skipped the expected MAC2 cookie challenge"
+                );
                 send_awg_output(&socket, peer.address, other);
                 established = true;
                 break;
             }
         }
     }
-    assert!(cookie_challenge_received, "Go AWG peer did not issue a MAC2 cookie challenge");
+    assert!(
+        cookie_challenge_received,
+        "Go AWG peer did not issue a MAC2 cookie challenge"
+    );
     assert!(
         established,
         "AWG handshake did not complete after MAC2 retry"
