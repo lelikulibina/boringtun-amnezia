@@ -307,18 +307,17 @@ impl AwgPacketCodec {
         if matches!(
             kind,
             MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-        ) {
-            if header_value != kind.type_id() {
-                let key = self
-                    .outbound_mac1_key
-                    .as_ref()
-                    .ok_or(PacketCodecError::MissingMac1Keys)?;
-                recompute_mac1(&mut message, key)?;
-            }
-            // Preserve MAC2 exactly as BoringTun produced it. DisableCookies
-            // suppresses cookie challenges on receive; it does not erase a
-            // previously learned cookie or forbid outgoing MAC2 values.
+        ) && header_value != kind.type_id()
+        {
+            let key = self
+                .outbound_mac1_key
+                .as_ref()
+                .ok_or(PacketCodecError::MissingMac1Keys)?;
+            recompute_mac1(&mut message, key)?;
         }
+        // Preserve MAC2 exactly as BoringTun produced it. DisableCookies
+        // suppresses cookie challenges on receive; it does not erase a
+        // previously learned cookie or forbid outgoing MAC2 values.
 
         let message_len = message.len();
         let trailer_len = if self.random_trailers && kind != MessageKind::Transport {
