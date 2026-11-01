@@ -1,20 +1,21 @@
 //! Базовое внешнее кодирование AWG-пакетов.
 //!
 //! Этот слой добавляет H1-H4 ranges, S1-S4 padding и ChaCha20 header protection
-//! поверх канонических пакетов BoringTun. При random H1/H2 пересчитывается MAC1;
-//! MAC2 under-load сценарии требуют DisableCookies на обеих сторонах.
+//! поверх канонических пакетов BoringTun. При random H1/H2 исходные MAC1/MAC2
+//! проверяются до канонизации, затем корректно пересчитываются для BoringTun.
 
 use crate::{AmneziaConfig, ValueRange};
 use blake2::digest::consts::U16;
-use blake2::digest::FixedOutput;
+use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
+use chacha20poly1305::aead::{Aead, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand_core::{CryptoRng, RngCore};
 use std::fmt;
+use zeroize::Zeroize;
 
 const MAX_UDP_PAYLOAD: usize = 65_507;
 const DEFAULT_UDP_WINDOW: usize = 500;
@@ -87,11 +88,11 @@ pub enum PacketCodecError {
     InvalidCipherParameters,
     /// Для рандомизации H1/H2 необходимы ключи MAC1.
     MissingMac1Keys,
-    /// Не удалось вычислить MAC1/MAC2 для handshake сообщения.
-    MacComputationFailed,
-    /// Не удалось расшифровать cookie reply.
-    CookieDecryptionFailed,
-    /// Не удалось расшифровать cookie reply.
+    /// Не удалось вычислить MAC1 для handshake сообщения.
+    Mac1ComputationFailed,
+    /// Не удалось вычислить MAC2 для handshake сообщения.
+    Mac2ComputationFailed,
+    /// Не удалось расшифровать аутентифицированный Cookie Reply.
     CookieDecryptionFailed,
 }
 
@@ -120,12 +121,9 @@ impl fmt::Display for PacketCodecError {
             }
             Self::InvalidCipherParameters => f.write_str("неверные параметры ChaCha20"),
             Self::MissingMac1Keys => f.write_str("для H1/H2 randomization необходимы ключи MAC1"),
-            Self::HeaderRandomizationRequiresDisableCookies => {
-                f.write_str("рандомизация H1/H2 требует DisableCookies на обоих peers")
-            }
-            Self::MacComputationFailed => f.write_str("не удалось пересчитать MAC1/MAC2"),
-            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать cookie reply"),
-            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать cookie reply"),
+            Self::Mac1ComputationFailed => f.write_str("не удалось пересчитать MAC1"),
+            Self::Mac2ComputationFailed => f.write_str("не удалось пересчитать MAC2"),
+            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать Cookie Reply"),
         }
     }
 }
@@ -135,23 +133,76 @@ impl std::error::Error for PacketCodecError {}
 /// Кодек внешнего слоя AWG для канонических BoringTun сообщений.
 ///
 /// Реализует H1-H4, S1-S4, header protection и outer RandomTrailers для
-/// handshake/cookie. MAC1 пересчитывается при рандомизации H1/H2. Для этого
-/// режима обе стороны должны включить DisableCookies: BoringTun API не
-/// предоставляет cookie secret для пересчёта MAC2. Transport RandomTrailers,
-/// content padding, I1-I5 и junk обрабатываются AwgTunnel wrapper.
-#[derive(Debug, Clone)]
+/// handshake/cookie. Для H1/H2 проверяются исходные MAC1/MAC2, затем MAC
+/// пересчитываются после канонизации заголовка. Cookie Reply расшифровываются
+/// для синхронизации MAC2. Transport RandomTrailers, content padding, I1-I5
+/// и junk обрабатываются AwgTunnel wrapper.
+#[derive(Clone)]
 pub struct AwgPacketCodec {
     padding: [usize; 4],
     header_protection_key: Option<[u8; 32]>,
     header_ranges: [ValueRange; 4],
     inbound_mac1_key: Option<[u8; 32]>,
     outbound_mac1_key: Option<[u8; 32]>,
+    local_cookie_key: Option<[u8; 32]>,
     peer_cookie_key: Option<[u8; 32]>,
-    write_cookie: Option<[u8; 16]>,
     read_cookie: Option<[u8; 16]>,
+    write_cookie: Option<[u8; 16]>,
     last_inbound_handshake_context: Option<(u32, [u8; 16])>,
     last_outbound_handshake_context: Option<(u32, [u8; 16], [u8; 16])>,
     random_trailers: bool,
+}
+
+impl Drop for AwgPacketCodec {
+    fn drop(&mut self) {
+        if let Some(key) = self.header_protection_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.inbound_mac1_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.outbound_mac1_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.local_cookie_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.peer_cookie_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(cookie) = self.read_cookie.as_mut() {
+            cookie.zeroize();
+        }
+        if let Some(cookie) = self.write_cookie.as_mut() {
+            cookie.zeroize();
+        }
+    }
+}
+
+impl fmt::Debug for AwgPacketCodec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AwgPacketCodec")
+            .field("padding", &self.padding)
+            .field(
+                "header_protection_key",
+                &self.header_protection_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("header_ranges", &self.header_ranges)
+            .field(
+                "inbound_mac1_key",
+                &self.inbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "outbound_mac1_key",
+                &self.outbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("local_cookie_key", &self.local_cookie_key.as_ref().map(|_| "[REDACTED]"))
+            .field("peer_cookie_key", &self.peer_cookie_key.as_ref().map(|_| "[REDACTED]"))
+            .field("read_cookie", &self.read_cookie.as_ref().map(|_| "[REDACTED]"))
+            .field("write_cookie", &self.write_cookie.as_ref().map(|_| "[REDACTED]"))
+            .field("random_trailers", &self.random_trailers)
+            .finish()
+    }
 }
 
 impl AwgPacketCodec {
@@ -160,14 +211,12 @@ impl AwgPacketCodec {
     /// Подходит для стандартных H1/H2 и для рандомизации H3/H4.
     /// Рандомизация H1/H2 требует конструктора new_with_keys.
     pub fn new(config: &AmneziaConfig) -> Result<Self, PacketCodecError> {
-        Self::new_internal(config, None, None, None)
+        Self::new_internal(config, None, None, None, None)
     }
 
     /// Создаёт codec с локальным и удалённым public key для MAC1.
     ///
-    /// H1/H2 randomization разрешается только при DisableCookies=true:
-    /// это исключает необходимость пересчитывать MAC2 с cookie secret,
-    /// который закрыт внутри BoringTun.
+    /// H1/H2 randomization поддерживается с обработкой Cookie Reply и MAC2.
     pub fn new_with_keys(
         config: &AmneziaConfig,
         local_public_key: &[u8; 32],
@@ -175,11 +224,13 @@ impl AwgPacketCodec {
     ) -> Result<Self, PacketCodecError> {
         let inbound_mac1_key = derive_mac1_key(local_public_key);
         let outbound_mac1_key = derive_mac1_key(peer_public_key);
+        let local_cookie_key = derive_cookie_key(local_public_key);
         let peer_cookie_key = derive_cookie_key(peer_public_key);
         Self::new_internal(
             config,
             Some(inbound_mac1_key),
             Some(outbound_mac1_key),
+            Some(local_cookie_key),
             Some(peer_cookie_key),
         )
     }
@@ -188,13 +239,20 @@ impl AwgPacketCodec {
         config: &AmneziaConfig,
         inbound_mac1_key: Option<[u8; 32]>,
         outbound_mac1_key: Option<[u8; 32]>,
+        local_cookie_key: Option<[u8; 32]>,
         peer_cookie_key: Option<[u8; 32]>,
     ) -> Result<Self, PacketCodecError> {
-        if config.timings.rekey_after_time.is_some()
-            || config.timings.rekey_timeout.is_some()
-            || config.timings.reject_after_time.is_some()
-            || config.timings.keepalive_timeout.is_some()
-            || config.timings.max_handshake_attempts.is_some()
+        let timing_overrides = [
+            config.timings.rekey_after_time,
+            config.timings.rekey_timeout,
+            config.timings.reject_after_time,
+            config.timings.keepalive_timeout,
+            config.timings.max_handshake_attempts,
+        ];
+        if timing_overrides
+            .into_iter()
+            .flatten()
+            .any(|range| range.min != 0 || range.max != 0)
         {
             return Err(PacketCodecError::UnsupportedOption("timing overrides"));
         }
@@ -205,7 +263,7 @@ impl AwgPacketCodec {
             config.headers.h3.unwrap_or(ValueRange { min: 3, max: 3 }),
             config.headers.h4.unwrap_or(ValueRange { min: 4, max: 4 }),
         ];
-        for range in &header_ranges {
+        for (index, range) in header_ranges.iter().enumerate() {
             if range.min > range.max {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
             }
@@ -252,9 +310,10 @@ impl AwgPacketCodec {
             header_ranges,
             inbound_mac1_key,
             outbound_mac1_key,
+            local_cookie_key,
             peer_cookie_key,
-            write_cookie: None,
             read_cookie: None,
+            write_cookie: None,
             last_inbound_handshake_context: None,
             last_outbound_handshake_context: None,
             random_trailers: config.random_trailers,
@@ -283,20 +342,24 @@ impl AwgPacketCodec {
         let header_value = pick_header_value(header_range, rng);
         message[..4].copy_from_slice(&header_value.to_le_bytes());
 
-        let outbound_handshake_context = if matches!(
+        let is_handshake = matches!(
             kind,
             MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-        ) {
-            if header_value != kind.type_id() {
-                let key = self
-                    .outbound_mac1_key
-                    .as_ref()
-                    .ok_or(PacketCodecError::MissingMac1Keys)?;
-                recompute_mac1(&mut message, key)?;
-            }
+        );
+        if is_handshake && header_value != kind.type_id() {
+            let key = self
+                .outbound_mac1_key
+                .as_ref()
+                .ok_or(PacketCodecError::MissingMac1Keys)?;
+            recompute_mac1(&mut message, key)?;
+        }
+        if is_handshake {
             if let Some(cookie) = self.write_cookie {
                 recompute_mac2(&mut message, &cookie)?;
             }
+        }
+
+        let outbound_handshake_context = if is_handshake {
             let mac1_offset = message
                 .len()
                 .checked_sub(32)
@@ -411,48 +474,66 @@ impl AwgPacketCodec {
             }
 
             let received_header = u32::from_le_bytes(candidate[..4].try_into().unwrap());
-            if received_header != kind.type_id() {
-                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
-                if matches!(
-                    kind,
-                    MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-                ) {
-                    let key = self
-                        .inbound_mac1_key
-                        .as_ref()
-                        .ok_or(PacketCodecError::MissingMac1Keys)?;
-                    if recompute_mac1(&mut candidate, key).is_err() {
-                        continue;
-                    }
-                }
-            }
-
-            let handshake_context = if matches!(
+            let handshake = matches!(
                 kind,
                 MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-            ) {
-                if let Some(cookie) = self.read_cookie {
-                    if recompute_mac2(&mut candidate, &cookie).is_err() {
-                        continue;
-                    }
-                }
-                let mac1_offset = candidate.len() - 32;
-                let sender_index = u32::from_le_bytes(candidate[4..8].try_into().unwrap());
-                let mac1: [u8; 16] = candidate[mac1_offset..mac1_offset + 16]
-                    .try_into()
-                    .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
-                Some((sender_index, mac1))
+            );
+            let inbound_mac1_key = if handshake {
+                self.inbound_mac1_key.as_ref()
             } else {
                 None
             };
+            if let Some(key) = inbound_mac1_key {
+                // Verify even canonical headers before accepting a handshake
+                // candidate. This prevents accidental H1/H2 matches inside a
+                // different message from stealing the packet classification.
+                if !verify_mac1(&candidate, key) {
+                    continue;
+                }
+            } else if handshake && received_header != kind.type_id() {
+                continue;
+            }
+
+            if received_header != kind.type_id() {
+                // Only translate MAC2 when the original randomized packet
+                // already proves possession of the issued cookie. Invalid
+                // MAC2 must remain invalid so BoringTun can issue a fresh
+                // Cookie Reply instead of the codec bypassing rate limiting.
+                let valid_mac2_cookie = if handshake {
+                    self.read_cookie
+                        .filter(|cookie| verify_mac2(&candidate, cookie))
+                } else {
+                    None
+                };
+
+                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
+                if let Some(key) = inbound_mac1_key {
+                    if recompute_mac1(&mut candidate, key).is_err() {
+                        continue;
+                    }
+                    if let Some(cookie) = valid_mac2_cookie {
+                        if recompute_mac2(&mut candidate, &cookie).is_err() {
+                            continue;
+                        }
+                    }
+                }
+            }
 
             let parsed = match Tunn::parse_incoming_packet(&candidate) {
                 Ok(packet) => packet,
                 Err(_) => continue,
             };
             if MessageKind::from_packet(&parsed) == kind {
-                if let Some(context) = handshake_context {
-                    self.last_inbound_handshake_context = Some(context);
+                if handshake {
+                    let mac1_offset = candidate.len() - 32;
+                    let sender_index = u32::from_le_bytes(candidate[4..8].try_into().unwrap());
+                    let mac1 = candidate[mac1_offset..mac1_offset + 16]
+                        .try_into()
+                        .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
+                    self.last_inbound_handshake_context = Some((sender_index, mac1));
+                }
+                if kind == MessageKind::CookieReply {
+                    self.capture_cookie_reply(&candidate)?;
                 }
                 return Ok(candidate);
             }
@@ -461,18 +542,44 @@ impl AwgPacketCodec {
         Err(PacketCodecError::InvalidDatagram)
     }
 
-    /// Устанавливает cookie, полученный из аутентифицированного CookieReply.
-    pub fn set_write_cookie(&mut self, cookie: [u8; 16]) {
-        self.write_cookie = Some(cookie);
-    }
-
-    pub(crate) fn has_write_cookie(&self) -> bool {
-        self.write_cookie.is_some()
-    }
-
     fn capture_issued_cookie(&mut self, packet: &[u8]) -> Result<(), PacketCodecError> {
         let (Some(key), Some((sender_index, last_mac1))) =
-            (self.peer_cookie_key, self.last_inbound_handshake_context)
+            (self.local_cookie_key, self.last_inbound_handshake_context)
+        else {
+            return Ok(());
+        };
+        if packet.len() != 64 || u32::from_le_bytes(packet[..4].try_into().unwrap()) != 3 {
+            return Ok(());
+        }
+        let receiver_index = u32::from_le_bytes(packet[4..8].try_into().unwrap());
+        if receiver_index != sender_index {
+            return Ok(());
+        }
+
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let mut plaintext = cipher
+            .decrypt(
+                XNonce::from_slice(&packet[8..32]),
+                Payload {
+                    msg: &packet[32..64],
+                    aad: &last_mac1,
+                },
+            )
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        let cookie: [u8; 16] = plaintext
+            .as_slice()
+            .try_into()
+            .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        plaintext.zeroize();
+        self.read_cookie = Some(cookie);
+        self.last_inbound_handshake_context = None;
+        Ok(())
+    }
+
+    fn capture_cookie_reply(&mut self, packet: &[u8]) -> Result<(), PacketCodecError> {
+        let (Some(key), Some((sender_index, random_mac1, canonical_mac1))) =
+            (self.peer_cookie_key, self.last_outbound_handshake_context)
         else {
             return Ok(());
         };
@@ -487,25 +594,32 @@ impl AwgPacketCodec {
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
         let nonce = XNonce::from_slice(&packet[8..32]);
-        let plaintext = cipher
+        let mut plaintext = cipher
             .decrypt(
                 nonce,
                 Payload {
                     msg: &packet[32..64],
-                    aad: &last_mac1,
+                    aad: &random_mac1,
                 },
             )
+            .or_else(|_| {
+                cipher.decrypt(
+                    nonce,
+                    Payload {
+                        msg: &packet[32..64],
+                        aad: &canonical_mac1,
+                    },
+                )
+            })
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
         let cookie: [u8; 16] = plaintext
+            .as_slice()
             .try_into()
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
-        self.read_cookie = Some(cookie);
+        plaintext.zeroize();
+        self.write_cookie = Some(cookie);
+        self.last_outbound_handshake_context = None;
         Ok(())
-    }
-
-    /// Извлекает контекст последнего исходящего handshake для CookieReply.
-    pub fn take_last_outbound_handshake_context(&mut self) -> Option<(u32, [u8; 16], [u8; 16])> {
-        self.last_outbound_handshake_context.take()
     }
 
     /// S4 padding, используемый при создании transport datagram.
@@ -604,29 +718,69 @@ fn derive_cookie_key(public_key: &[u8; 32]) -> [u8; 32] {
     hash.finalize().into()
 }
 
+fn verify_mac2(packet: &[u8], cookie: &[u8; 16]) -> bool {
+    let Some(mac2_offset) = packet.len().checked_sub(16) else {
+        return false;
+    };
+    let Ok(mut mac) = Blake2sMac::<U16>::new_from_slice(cookie) else {
+        return false;
+    };
+    blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
+    let expected = mac.finalize_fixed();
+    let mut difference = 0u8;
+    for (expected_byte, received_byte) in expected.iter().zip(&packet[mac2_offset..]) {
+        difference |= *expected_byte ^ *received_byte;
+    }
+    difference == 0
+}
+
+fn recompute_mac2(
+    packet: &mut [u8],
+    cookie: &[u8; 16],
+) -> Result<(), PacketCodecError> {
+    let mac2_offset = packet
+        .len()
+        .checked_sub(16)
+        .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+    let mut mac = Blake2sMac::<U16>::new_from_slice(cookie)
+        .map_err(|_| PacketCodecError::Mac2ComputationFailed)?;
+    blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
+    let digest = mac.finalize_fixed();
+    packet[mac2_offset..].copy_from_slice(&digest);
+    Ok(())
+}
+
+fn verify_mac1(packet: &[u8], key: &[u8; 32]) -> bool {
+    let Some(mac1_offset) = packet.len().checked_sub(32) else {
+        return false;
+    };
+    let Ok(mut mac) = Blake2sMac::<U16>::new_from_slice(key) else {
+        return false;
+    };
+    blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
+    let expected = mac.finalize_fixed();
+
+    // MAC1 is not a secret, but constant-time comparison keeps this helper
+    // safe if the surrounding key handling changes in a future refactor.
+    let mut difference = 0u8;
+    for (expected_byte, received_byte) in
+        expected.iter().zip(&packet[mac1_offset..mac1_offset + 16])
+    {
+        difference |= expected_byte ^ received_byte;
+    }
+    difference == 0
+}
+
 fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecError> {
     let mac1_offset = packet
         .len()
         .checked_sub(32)
         .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
     let mut mac: Blake2sMac<U16> =
-        Blake2sMac::new_from_slice(key).map_err(|_| PacketCodecError::MacComputationFailed)?;
+        Blake2sMac::new_from_slice(key).map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
     blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
     let digest = mac.finalize_fixed();
     packet[mac1_offset..mac1_offset + 16].copy_from_slice(&digest);
-    Ok(())
-}
-
-fn recompute_mac2(packet: &mut [u8], cookie: &[u8; 16]) -> Result<(), PacketCodecError> {
-    let mac2_offset = packet
-        .len()
-        .checked_sub(16)
-        .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
-    let mut mac: Blake2sMac<U16> =
-        Blake2sMac::new_from_slice(cookie).map_err(|_| PacketCodecError::MacComputationFailed)?;
-    blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
-    let digest = mac.finalize_fixed();
-    packet[mac2_offset..].copy_from_slice(&digest);
     Ok(())
 }
 
@@ -744,6 +898,40 @@ mod tests {
     }
 
     #[test]
+    fn codec_debug_redacts_header_protection_and_mac1_keys() {
+        let config = base_config(true);
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0xa5; 32], &[0x5a; 32]).unwrap();
+        let rendered = format!("{codec:?}");
+
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(!rendered.contains("55555555"));
+        assert!(!rendered.contains("a5a5a5a5"));
+        assert!(!rendered.contains("5a5a5a5a"));
+    }
+
+    #[test]
+    fn zero_timing_ranges_are_treated_as_disabled() {
+        let mut config = AmneziaConfig::default();
+        config.timings.rekey_after_time = Some(ValueRange { min: 0, max: 0 });
+        config.timings.rekey_timeout = Some(ValueRange { min: 0, max: 0 });
+        config.timings.reject_after_time = Some(ValueRange { min: 0, max: 0 });
+        config.timings.keepalive_timeout = Some(ValueRange { min: 0, max: 0 });
+        config.timings.max_handshake_attempts = Some(ValueRange { min: 0, max: 0 });
+
+        assert!(AwgPacketCodec::new(&config).is_ok());
+    }
+
+    #[test]
+    fn nonzero_timing_overrides_are_rejected_until_the_engine_supports_them() {
+        let mut config = AmneziaConfig::default();
+        config.timings.rekey_after_time = Some(ValueRange { min: 120, max: 121 });
+        assert_eq!(
+            AwgPacketCodec::new(&config).err(),
+            Some(PacketCodecError::UnsupportedOption("timing overrides"))
+        );
+    }
+
+    #[test]
     fn all_zero_header_protection_key_disables_the_cipher() {
         let mut config = AmneziaConfig::default();
         config.headers.header_protection_key = Some([0; 32]);
@@ -764,7 +952,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_randomized_handshake_headers_until_mac_recalculation_is_available() {
+    fn randomized_handshake_headers_require_mac1_keys() {
         let mut config = base_config(false);
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         assert_eq!(
@@ -774,44 +962,25 @@ mod tests {
     }
 
     #[test]
-    fn mac1_key_and_tag_match_wireguard_blake2s_vector() {
-        let public_key = [0x11; 32];
-        let key = derive_mac1_key(&public_key);
-        assert_eq!(
-            key,
-            [
-                0x10, 0xa6, 0xe4, 0x4e, 0x50, 0x59, 0xda, 0x36, 0x42, 0x22, 0x63, 0x66, 0xd6,
-                0x89, 0x88, 0x2e, 0x90, 0x82, 0xfe, 0xbd, 0xaa, 0x0b, 0x14, 0xdb, 0xaa, 0x8a,
-                0x0d, 0x90, 0x6b, 0xa1, 0xb0, 0xeb,
-            ]
-        );
+    fn disable_cookies_preserves_existing_mac2_value() {
+        let mut config = base_config(false);
+        config.disable_cookies = true;
+        config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x11; 32]).unwrap();
 
-        let mut packet = vec![0u8; 148];
-        packet[..4].copy_from_slice(&1u32.to_le_bytes());
-        recompute_mac1(&mut packet, &key).unwrap();
-        assert_eq!(
-            &packet[116..132],
-            &[0xa6, 0xc6, 0xc4, 0x2e, 0xf6, 0x37, 0x37, 0xed, 0xd2, 0x41, 0x91, 0xe5, 0x89, 0x2e, 0x97, 0x86]
-        );
-    }
-
-    #[test]
-    fn mac2_uses_cookie_key_over_message_and_mac1_prefix() {
-        let cookie = [0x42; 16];
         let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
-        let mac1_offset = packet.len() - 32;
-        packet[mac1_offset..mac1_offset + 16].fill(0x24);
-        recompute_mac2(&mut packet, &cookie).unwrap();
+        let mac2_offset = packet.len() - 16;
+        packet[mac2_offset..].fill(0x77);
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x31)).unwrap();
 
-        let mut expected: Blake2sMac<U16> = Blake2sMac::new_from_slice(&cookie).unwrap();
-        blake2::digest::Update::update(&mut expected, &packet[..packet.len() - 16]);
-        let expected = expected.finalize_fixed();
-        assert_eq!(&packet[packet.len() - 16..], &expected[..]);
+        assert_eq!(&encoded[12 + 148 - 16..12 + 148], &[0x77; 16]);
+        assert_eq!(codec.decode(&encoded).unwrap()[148 - 16..], [0x77; 16]);
     }
 
     #[test]
     fn randomized_h1_h2_require_mac1_keys() {
         let mut config = base_config(false);
+        config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
         assert_eq!(
@@ -868,6 +1037,162 @@ mod tests {
     }
 
     #[test]
+    fn false_randomized_handshake_candidate_does_not_steal_transport_datagram() {
+        let mut config = base_config(false);
+        config.disable_cookies = true;
+        config.random_trailers = true;
+        config.padding.s4 = Some(16);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
+        config.headers.h4 = Some(ValueRange { min: 200, max: 201 });
+
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+
+        // The bytes at S1 look like a randomized initiation header, but the
+        // actual datagram starts its transport message at S4. Its apparent
+        // initiation MAC1 is random ciphertext and must not be recomputed into
+        // a valid MAC1 before the transport candidate is considered.
+        let mut transport = canonical_packet(MessageKind::Transport);
+        transport.resize(160, 0x5a);
+        transport[..4].copy_from_slice(&200u32.to_le_bytes());
+
+        let mut datagram = vec![0x33; 12];
+        datagram.extend_from_slice(&100u32.to_le_bytes());
+        datagram.extend_from_slice(&transport);
+
+        assert_eq!(codec.decode(&datagram).unwrap(), {
+            let mut expected = transport;
+            expected[..4].copy_from_slice(&4u32.to_le_bytes());
+            expected
+        });
+    }
+
+    #[test]
+    fn verify_mac1_detects_modified_handshake_bytes() {
+        let key = [0x7d; 32];
+        let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
+        recompute_mac1(&mut packet, &key).unwrap();
+        assert!(verify_mac1(&packet, &key));
+
+        packet[24] ^= 0x80;
+        assert!(!verify_mac1(&packet, &key));
+    }
+
+    #[test]
+    fn randomized_h1_h2_are_supported_with_cookie_keys_and_cookies_enabled() {
+        let mut config = base_config(false);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
+        assert!(AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).is_ok());
+    }
+
+    #[test]
+    fn cookie_reply_capture_uses_local_key_for_issued_and_peer_key_for_received() {
+        let config = base_config(false);
+        let mut codec =
+            AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let sender_index = 0x1234_5678;
+        let mac1 = [0x5a; 16];
+        let cookie = [0x6b; 16];
+        let nonce = [0x7c; 24];
+
+        codec.last_inbound_handshake_context = Some((sender_index, mac1));
+        let local_cipher = XChaCha20Poly1305::new_from_slice(&codec.local_cookie_key.unwrap()).unwrap();
+        let local_encrypted = local_cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &cookie,
+                    aad: &mac1,
+                },
+            )
+            .unwrap();
+        let mut issued_reply = vec![0u8; 64];
+        issued_reply[..4].copy_from_slice(&3u32.to_le_bytes());
+        issued_reply[4..8].copy_from_slice(&sender_index.to_le_bytes());
+        issued_reply[8..32].copy_from_slice(&nonce);
+        issued_reply[32..64].copy_from_slice(&local_encrypted);
+        codec.capture_issued_cookie(&issued_reply).unwrap();
+        assert_eq!(codec.read_cookie, Some(cookie));
+
+        let random_mac1 = [0x31; 16];
+        let canonical_mac1 = [0x42; 16];
+        codec.last_outbound_handshake_context =
+            Some((sender_index, random_mac1, canonical_mac1));
+        let peer_cipher = XChaCha20Poly1305::new_from_slice(&codec.peer_cookie_key.unwrap()).unwrap();
+        let peer_encrypted = peer_cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &cookie,
+                    aad: &canonical_mac1,
+                },
+            )
+            .unwrap();
+        let mut received_reply = vec![0u8; 64];
+        received_reply[..4].copy_from_slice(&3u32.to_le_bytes());
+        received_reply[4..8].copy_from_slice(&sender_index.to_le_bytes());
+        received_reply[8..32].copy_from_slice(&nonce);
+        received_reply[32..64].copy_from_slice(&peer_encrypted);
+        codec.capture_cookie_reply(&received_reply).unwrap();
+        assert_eq!(codec.write_cookie, Some(cookie));
+    }
+
+    #[test]
+    fn randomized_handshake_rewrites_mac2_only_after_validating_original_cookie() {
+        let mut config = base_config(false);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.disable_cookies = false;
+
+        let local_a = [0x11; 32];
+        let local_b = [0x22; 32];
+        let cookie = [0x6b; 16];
+        let mut sender =
+            AwgPacketCodec::new_with_keys(&config, &local_a, &local_b).unwrap();
+        let mut receiver =
+            AwgPacketCodec::new_with_keys(&config, &local_b, &local_a).unwrap();
+        sender.write_cookie = Some(cookie);
+        receiver.read_cookie = Some(cookie);
+
+        let mut valid_packet = canonical_packet(MessageKind::HandshakeInitiation);
+        valid_packet[4..8].copy_from_slice(&0x1234_5678u32.to_le_bytes());
+        recompute_mac1(&mut valid_packet, &derive_mac1_key(&local_b)).unwrap();
+        recompute_mac2(&mut valid_packet, &cookie).unwrap();
+
+        let encoded = sender.encode(&valid_packet, 500, &mut FixedRng(0x44)).unwrap();
+        let decoded = receiver.decode(&encoded).unwrap();
+        assert_eq!(u32::from_le_bytes(decoded[..4].try_into().unwrap()), 1);
+        assert!(verify_mac1(&decoded, &derive_mac1_key(&local_b)));
+        assert!(verify_mac2(&decoded, &cookie));
+
+        let mut sender_without_cookie =
+            AwgPacketCodec::new_with_keys(&config, &local_a, &local_b).unwrap();
+        let mut invalid_packet = valid_packet;
+        let mac2_offset = invalid_packet.len() - 16;
+        invalid_packet[mac2_offset..].fill(0x99);
+        let encoded_invalid =
+            sender_without_cookie.encode(&invalid_packet, 500, &mut FixedRng(0x44)).unwrap();
+        let decoded_invalid = receiver.decode(&encoded_invalid).unwrap();
+        assert!(verify_mac1(&decoded_invalid, &derive_mac1_key(&local_b)));
+        assert!(!verify_mac2(&decoded_invalid, &cookie));
+    }
+
+    #[test]
+    fn decode_never_panics_for_short_or_random_datagrams() {
+        let mut codec = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut state = 0x1234_5678u32;
+        for length in 0..512 {
+            let mut datagram = vec![0u8; length];
+            for byte in &mut datagram {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = state as u8;
+            }
+            let _ = codec.decode(&datagram);
+        }
+    }
+
+    #[test]
     fn rejects_malformed_and_oversized_datagrams() {
         let mut codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
@@ -894,7 +1219,7 @@ mod tests {
         let mut sender = AwgPacketCodec::new(&base_config(true)).unwrap();
         let mut wrong = base_config(true);
         wrong.headers.header_protection_key = Some([0x99; 32]);
-        let receiver = AwgPacketCodec::new(&wrong).unwrap();
+        let mut receiver = AwgPacketCodec::new(&wrong).unwrap();
 
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = sender.encode(&packet, 500, &mut FixedRng(3)).unwrap();
