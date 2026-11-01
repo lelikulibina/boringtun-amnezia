@@ -280,9 +280,7 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidRangeSyntax(value) => {
                 write!(f, "неверный формат диапазона: {value}")
             }
-            Self::OverlappingHeaderRanges => {
-                f.write_str("диапазоны H1-H4 не должны пересекаться")
-            }
+            Self::OverlappingHeaderRanges => f.write_str("диапазоны H1-H4 не должны пересекаться"),
             Self::MissingAmneziaOptions => {
                 f.write_str("для режима AmneziaWG необходима конфигурация AWG")
             }
@@ -322,8 +320,14 @@ mod tests {
 
     #[test]
     fn parses_fixed_ranges_ranges_and_off_values() {
-        assert_eq!(parse_optional_range("12"), Ok(Some(ValueRange { min: 12, max: 12 })));
-        assert_eq!(parse_optional_range("10-20"), Ok(Some(ValueRange { min: 10, max: 20 })));
+        assert_eq!(
+            parse_optional_range("12"),
+            Ok(Some(ValueRange { min: 12, max: 12 }))
+        );
+        assert_eq!(
+            parse_optional_range("10-20"),
+            Ok(Some(ValueRange { min: 10, max: 20 }))
+        );
         assert_eq!(parse_optional_range("(off)"), Ok(None));
         assert_eq!(parse_optional_range("off"), Ok(None));
         assert!(parse_optional_range("20-10").is_err());
@@ -376,9 +380,9 @@ mod tests {
                 content_padding: None,
             };
             let config = EngineConfig {
-                mode: ProtocolMode::AmneziaWg30,
-                amnezia: Some(awg),
-            };
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
             assert_eq!(
                 config.validate(),
                 Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12)
