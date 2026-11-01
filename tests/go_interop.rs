@@ -289,6 +289,77 @@ fn awg_config(is_31: bool) -> AmneziaConfig {
     }
 }
 
+fn build_wireguard_underload_probes(
+    local_private_key: &[u8; 32],
+    peer_public_key: &x25519::PublicKey,
+) -> Vec<Vec<u8>> {
+    let mut probes = Vec::with_capacity(512);
+    for index in 0..512u32 {
+        let mut tunnel = Tunn::new(
+            x25519::StaticSecret::from(*local_private_key),
+            peer_public_key.clone(),
+            None,
+            None,
+            10_000 + index,
+            None,
+        );
+        let mut buffer = [0u8; 2048];
+        match tunnel.format_handshake_initiation(&mut buffer, true) {
+            TunnResult::WriteToNetwork(packet) => probes.push(packet.to_vec()),
+            other => panic!("expected WireGuard load probe, got {other:?}"),
+        }
+    }
+    probes
+}
+
+fn build_awg_underload_probes(
+    mode: ProtocolMode,
+    local_private_key: &[u8; 32],
+    peer_public_key: &x25519::PublicKey,
+    config: &AmneziaConfig,
+) -> Vec<Vec<u8>> {
+    let mut probes = Vec::with_capacity(512);
+    for index in 0..512u32 {
+        let mut tunnel = AwgTunnel::new(
+            mode,
+            x25519::StaticSecret::from(*local_private_key),
+            peer_public_key.clone(),
+            None,
+            None,
+            20_000 + index,
+            config,
+        )
+        .expect("create AWG load probe tunnel");
+        let mut rng = FixedRng((index % 254 + 1) as u8);
+        let mut buffer = [0u8; 2048];
+        match tunnel
+            .initiate_handshake(&mut buffer, true, &mut rng)
+            .expect("format AWG load probe")
+        {
+            AwgTunnelOutput::WriteToNetwork(packet) => probes.push(packet),
+            AwgTunnelOutput::WriteToNetworkBatch(packets) => probes.extend(packets),
+            other => panic!("expected AWG load probe packets, got {other:?}"),
+        }
+    }
+    probes
+}
+
+fn force_go_under_load(peer: &mut GoPeer, probes: &[Vec<u8>]) {
+    let flood_socket = UdpSocket::bind("127.0.0.1:0").expect("bind load-probe UDP socket");
+    for _ in 0..5 {
+        for packet in probes {
+            flood_socket
+                .send_to(packet, peer.address)
+                .expect("send valid-MAC1 load probe");
+        }
+        thread::sleep(Duration::from_millis(100));
+        if peer.is_under_load() {
+            return;
+        }
+    }
+    panic!("pinned amneziawg-go peer did not enter under-load state after valid-MAC1 probes");
+}
+
 fn run_wireguard_interop() {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
     socket
