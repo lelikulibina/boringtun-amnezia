@@ -368,7 +368,6 @@ impl AwgPacketCodec {
 
             let received_header = u32::from_le_bytes(candidate[..4].try_into().unwrap());
             if received_header != kind.type_id() {
-                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
                 if matches!(
                     kind,
                     MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
@@ -377,10 +376,20 @@ impl AwgPacketCodec {
                         .inbound_mac1_key
                         .as_ref()
                         .ok_or(PacketCodecError::MissingMac1Keys)?;
+
+                    // A random header candidate can overlap bytes from another
+                    // message kind (notably with RandomTrailers enabled). Verify
+                    // the sender's MAC1 before canonicalizing the type field;
+                    // otherwise an arbitrary transport datagram could be
+                    // rewritten into a syntactically valid handshake candidate.
+                    if !verify_mac1(&candidate, key) {
+                        continue;
+                    }
                     if recompute_mac1(&mut candidate, key).is_err() {
                         continue;
                     }
                 }
+                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
             }
 
             let parsed = match Tunn::parse_incoming_packet(&candidate) {
@@ -482,6 +491,27 @@ fn derive_mac1_key(public_key: &[u8; 32]) -> [u8; 32] {
     hash.update(b"mac1----");
     hash.update(public_key);
     hash.finalize().into()
+}
+
+fn verify_mac1(packet: &[u8], key: &[u8; 32]) -> bool {
+    let Some(mac1_offset) = packet.len().checked_sub(32) else {
+        return false;
+    };
+    let Ok(mut mac) = Blake2sMac::<U16>::new_from_slice(key) else {
+        return false;
+    };
+    blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
+    let expected = mac.finalize_fixed();
+
+    // MAC1 is not a secret, but constant-time comparison keeps this helper
+    // safe if the surrounding key handling changes in a future refactor.
+    let mut difference = 0u8;
+    for (expected_byte, received_byte) in
+        expected.iter().zip(&packet[mac1_offset..mac1_offset + 16])
+    {
+        difference |= expected_byte ^ received_byte;
+    }
+    difference == 0
 }
 
 fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecError> {
@@ -697,6 +727,63 @@ mod tests {
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
         assert_eq!(encoded.len(), codec.padding[3] + packet.len());
         assert_eq!(codec.decode(&encoded).unwrap(), packet);
+    }
+
+    #[test]
+    fn false_randomized_handshake_candidate_does_not_steal_transport_datagram() {
+        let mut config = base_config(false);
+        config.disable_cookies = true;
+        config.random_trailers = true;
+        config.padding.s4 = Some(16);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
+        config.headers.h4 = Some(ValueRange { min: 200, max: 201 });
+
+        let codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+
+        // The bytes at S1 look like a randomized initiation header, but the
+        // actual datagram starts its transport message at S4. Its apparent
+        // initiation MAC1 is random ciphertext and must not be recomputed into
+        // a valid MAC1 before the transport candidate is considered.
+        let mut transport = canonical_packet(MessageKind::Transport);
+        transport.resize(160, 0x5a);
+        transport[..4].copy_from_slice(&200u32.to_le_bytes());
+
+        let mut datagram = vec![0x33; 12];
+        datagram.extend_from_slice(&100u32.to_le_bytes());
+        datagram.extend_from_slice(&transport);
+
+        assert_eq!(codec.decode(&datagram).unwrap(), {
+            let mut expected = transport;
+            expected[..4].copy_from_slice(&4u32.to_le_bytes());
+            expected
+        });
+    }
+
+    #[test]
+    fn verify_mac1_detects_modified_handshake_bytes() {
+        let key = [0x7d; 32];
+        let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
+        recompute_mac1(&mut packet, &key).unwrap();
+        assert!(verify_mac1(&packet, &key));
+
+        packet[24] ^= 0x80;
+        assert!(!verify_mac1(&packet, &key));
+    }
+
+    #[test]
+    fn decode_never_panics_for_short_or_random_datagrams() {
+        let codec = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut state = 0x1234_5678u32;
+        for length in 0..512 {
+            let mut datagram = vec![0u8; length];
+            for byte in &mut datagram {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = state as u8;
+            }
+            let _ = codec.decode(&datagram);
+        }
     }
 
     #[test]
