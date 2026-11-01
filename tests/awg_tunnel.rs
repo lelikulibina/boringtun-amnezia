@@ -1,6 +1,8 @@
 use boringtun_amnezia::awg::tunnel::{AwgTunnel, AwgTunnelOutput};
 use boringtun_amnezia::wireguard::x25519;
-use boringtun_amnezia::{AmneziaConfig, PacketPadding};
+use boringtun_amnezia::{
+    AmneziaConfig, JunkConfig, PacketPadding, ProtocolMode, SignatureTemplate, ValueRange,
+};
 use rand_core::{CryptoRng, RngCore};
 use std::net::Ipv4Addr;
 
@@ -42,16 +44,33 @@ fn awg_config() -> AmneziaConfig {
     config
 }
 
-fn tunnel_pair() -> (AwgTunnel, AwgTunnel) {
+fn tunnel_pair(config: &AmneziaConfig) -> (AwgTunnel, AwgTunnel) {
     let a_secret = x25519::StaticSecret::from([0x11; 32]);
     let b_secret = x25519::StaticSecret::from([0x22; 32]);
     let a_public = x25519::PublicKey::from(&a_secret);
     let b_public = x25519::PublicKey::from(&b_secret);
-    let config = awg_config();
 
     (
-        AwgTunnel::new(a_secret, b_public, None, None, 1, &config).unwrap(),
-        AwgTunnel::new(b_secret, a_public, None, None, 2, &config).unwrap(),
+        AwgTunnel::new(
+            ProtocolMode::AmneziaWg31,
+            a_secret,
+            b_public,
+            None,
+            None,
+            1,
+            config,
+        )
+        .unwrap(),
+        AwgTunnel::new(
+            ProtocolMode::AmneziaWg31,
+            b_secret,
+            a_public,
+            None,
+            None,
+            2,
+            config,
+        )
+        .unwrap(),
     )
 }
 
@@ -59,6 +78,14 @@ fn network_packet(output: AwgTunnelOutput) -> Vec<u8> {
     match output {
         AwgTunnelOutput::WriteToNetwork(packet) => packet,
         other => panic!("ожидался исходящий UDP datagram, получено: {other:?}"),
+    }
+}
+
+fn network_batch(output: AwgTunnelOutput) -> Vec<Vec<u8>> {
+    match output {
+        AwgTunnelOutput::WriteToNetworkBatch(packets) => packets,
+        AwgTunnelOutput::WriteToNetwork(packet) => vec![packet],
+        other => panic!("ожидался исходящий UDP batch, получено: {other:?}"),
     }
 }
 
@@ -73,33 +100,43 @@ fn ipv4_packet(source: [u8; 4], destination: [u8; 4]) -> Vec<u8> {
     packet
 }
 
-#[test]
-fn awg_framed_handshake_and_transport_work_in_both_directions() {
-    let (mut initiator, mut responder) = tunnel_pair();
-    let mut rng = FixedRng(0x5a);
-    let mut buffer = [0u8; 2048];
-
-    let initiation = network_packet(
+fn establish_pair(
+    initiator: &mut AwgTunnel,
+    responder: &mut AwgTunnel,
+    rng: &mut FixedRng,
+    buffer: &mut [u8],
+) {
+    let initiation_batch = network_batch(
         initiator
-            .initiate_handshake(&mut buffer, false, &mut rng)
+            .initiate_handshake(buffer, false, rng)
             .unwrap(),
     );
+    let initiation = initiation_batch.last().expect("handshake datagram exists");
     let response = network_packet(
         responder
-            .decapsulate(None, &initiation, &mut buffer, &mut rng)
+            .decapsulate(None, initiation, buffer, rng)
             .unwrap(),
     );
     let keepalive = network_packet(
         initiator
-            .decapsulate(None, &response, &mut buffer, &mut rng)
+            .decapsulate(None, &response, buffer, rng)
             .unwrap(),
     );
     assert_eq!(
         responder
-            .decapsulate(None, &keepalive, &mut buffer, &mut rng)
+            .decapsulate(None, &keepalive, buffer, rng)
             .unwrap(),
         AwgTunnelOutput::Done
     );
+}
+
+#[test]
+fn awg_framed_handshake_and_transport_work_in_both_directions() {
+    let config = awg_config();
+    let (mut initiator, mut responder) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x5a);
+    let mut buffer = [0u8; 2048];
+    establish_pair(&mut initiator, &mut responder, &mut rng, &mut buffer);
 
     let a_to_b = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
     let encrypted = network_packet(
@@ -126,4 +163,53 @@ fn awg_framed_handshake_and_transport_work_in_both_directions() {
             .unwrap(),
         AwgTunnelOutput::WriteToTunnelV4(b_to_a, Ipv4Addr::new(10, 0, 0, 2))
     );
+}
+
+#[test]
+fn awg_31_random_trailers_and_content_padding_round_trip() {
+    let mut config = awg_config();
+    config.random_trailers = true;
+    config.padding.content_padding = Some(ValueRange { min: 5, max: 9 });
+    let (mut initiator, mut responder) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x3c);
+    let mut buffer = [0u8; 2048];
+    establish_pair(&mut initiator, &mut responder, &mut rng, &mut buffer);
+
+    let packet = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
+    let encrypted = network_packet(
+        initiator
+            .encapsulate(&packet, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    assert_eq!(
+        responder
+            .decapsulate(None, &encrypted, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::WriteToTunnelV4(packet, Ipv4Addr::new(10, 0, 0, 1))
+    );
+}
+
+#[test]
+fn initiation_sends_signature_packets_then_junk_then_handshake() {
+    let mut config = awg_config();
+    config.signature_packets[0] = Some(SignatureTemplate::parse("<b 0xdeadbeef>").unwrap());
+    config.junk = JunkConfig {
+        count: 2,
+        min_size: 8,
+        max_size: 8,
+    };
+    let (mut initiator, _responder) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x4d);
+    let mut buffer = [0u8; 2048];
+
+    let batch = network_batch(
+        initiator
+            .initiate_handshake(&mut buffer, false, &mut rng)
+            .unwrap(),
+    );
+    assert_eq!(batch.len(), 4);
+    assert_eq!(batch[0], [0xde, 0xad, 0xbe, 0xef]);
+    assert_eq!(batch[1].len(), 8);
+    assert_eq!(batch[2].len(), 8);
+    assert!(batch[3].len() >= 148 + 12);
 }
