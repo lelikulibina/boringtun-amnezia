@@ -13,6 +13,7 @@ use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use rand_core::{CryptoRng, RngCore};
 use std::fmt;
+use zeroize::Zeroize;
 
 const MAX_UDP_PAYLOAD: usize = 65_507;
 const DEFAULT_UDP_WINDOW: usize = 500;
@@ -141,6 +142,20 @@ pub struct AwgPacketCodec {
     inbound_mac1_key: Option<[u8; 32]>,
     outbound_mac1_key: Option<[u8; 32]>,
     random_trailers: bool,
+}
+
+impl Drop for AwgPacketCodec {
+    fn drop(&mut self) {
+        if let Some(key) = self.header_protection_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.inbound_mac1_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.outbound_mac1_key.as_mut() {
+            key.zeroize();
+        }
+    }
 }
 
 impl fmt::Debug for AwgPacketCodec {
