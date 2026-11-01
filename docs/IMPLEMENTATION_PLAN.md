@@ -53,7 +53,8 @@
 ### Этап E — интеграция и hardening
 - [ ] Fuzzing парсеров и malformed packets.
 - [ ] Property-based tests, benchmarks и regression suite.
-- [ ] CI на Linux/macOS/Windows и feature matrix.
+- [x] CI feature matrix для no-default, WireGuard, AWG 3.0 и AWG 3.1.
+- [ ] CI на Linux/macOS/Windows.
 - [ ] Документация API, конфигурации и угроз.
 
 ## 3. Архитектурные ограничения
