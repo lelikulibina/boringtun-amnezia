@@ -22,7 +22,8 @@
 - [x] Проверить AWG 3.1 DisableCookies=true против Go peer: при активном under-load Cookie Reply не отправляется, handshake и transport завершаются.
 - [x] Проверить пороговый предикат Go IsUnderLoad() на изолированной handshake queue, заполненной до QueueHandshakeSize/8.
 - [x] Проверить Rust server-side Cookie Reply/MAC2 против Go client после 10 валидных MAC1 probes с некорректным Noise payload; подтвердить DisableCookies=true без Cookie Reply.
-- [ ] Проверить естественное достижение under-load через handshake queue, cookie rotation и upstream wireguard-go.
+- [x] Проверить принудительную ротацию Go cookie secret: старый MAC2 отвергается, новый Cookie Reply и повторный MAC2 завершают handshake.
+- [ ] Проверить live Go handshake queue stress, естественное истечение CookieRefreshTime и upstream wireguard-go.
 
 ### Этап B — конфигурация AWG
 - [x] Модели H1-H4, S1-S4, content padding, junk, timing и 3.1 flags.
@@ -47,7 +48,8 @@
 - [x] Базовая двусторонняя interoperability проверка handshake/IPv4 transport AWG 3.0 и 3.1 против закреплённого amneziawg-go.
 - [ ] Golden vectors и differential-проверка полного AWG packet framing непосредственно с закреплённой Go-реализацией.
 - [x] End-to-end RateLimiter under-load test: Cookie Reply → client cookie → randomized retry → успешный handshake.
-- [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation (внутренний Rust↔Rust under-load тест уже есть, но он не доказывает совместимость с Go).
+- [x] Двусторонняя Go interoperability проверка MAC2 under-load и принудительной cookie rotation.
+- [ ] Differential/golden vectors для всех вариантов и отдельная проверка с upstream wireguard-go.
 - [x] Экспортировать `update_timers` и проводить результаты timer polling через AWG framing, включая I1-I5/junk при повторном handshake.
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Кастомные таймеры.
@@ -58,7 +60,7 @@
 - [x] Базовые механизмы 3.1 RandomTrailers и DisableCookies.
 - [x] Базовые двусторонние handshake/transport тесты AWG 3.0/3.1 на закреплённой версии amneziawg-go.
 - [ ] Differential tests и golden vectors на точной версии amneziawg-go 3.1.
-- [ ] Совместимость с cookie/under-load и edge-case сценариями.
+- [ ] Live Go queue under-load, естественное cookie expiry и расширенные edge-case сценарии.
 
 ### Этап E — интеграция и hardening
 - [x] Детерминированный no-panic regression test декодера на коротких и случайных датаграммах; отдельные проверки malformed и oversized packets.
@@ -86,4 +88,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает базовые AWG packet transforms и внутренний MAC2 under-load retry, но внешняя Go interoperability, custom timers и keepalive padding ещё впереди.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает базовые AWG packet transforms и проходит внешнюю Go interoperability для WG/AWG 3.0/3.1, включая MAC2 challenge, Rust server cookie flow и принудительную cookie rotation. Live Go queue overload, естественное cookie expiry, custom timers и padding автоматически генерируемых keepalive ещё впереди.
