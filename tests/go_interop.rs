@@ -528,7 +528,13 @@ fn run_wireguard_interop() {
     );
 }
 
-fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cookies: bool) {
+fn run_awg_interop(
+    mode: ProtocolMode,
+    go_mode: &str,
+    is_31: bool,
+    disable_cookies: bool,
+    rotate_cookie: bool,
+) {
     eprintln!("Starting Go interoperability scenario: {go_mode}");
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
     socket
@@ -576,6 +582,11 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cooki
                     "Go peer sent Cookie Reply despite DisableCookies=true"
                 );
                 cookie_challenge_received = true;
+                cookie_challenge_count += 1;
+                if rotate_cookie && !cookie_rotation_triggered {
+                    peer.rotate_cookie_secret();
+                    cookie_rotation_triggered = true;
+                }
                 initiation = tunnel
                     .initiate_handshake(&mut buffer, true, &mut rng)
                     .expect("format AWG MAC2 cookie retry");
@@ -619,9 +630,16 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cooki
 #[ignore = "requires the pinned amneziawg-go helper built by the go-interop CI job"]
 fn interoperates_with_pinned_wireguard_and_amneziawg_go_in_both_directions() {
     run_wireguard_interop();
-    run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false);
-    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false);
-    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31-nocookies", true, true);
+    run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false, false);
+    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false, false);
+    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31-nocookies", true, true, false);
+    run_awg_interop(
+        ProtocolMode::AmneziaWg31,
+        "awg31-rotate-cookie",
+        true,
+        false,
+        true,
+    );
     run_rust_server_cookie_interop(false);
     run_rust_server_cookie_interop(true);
 }
