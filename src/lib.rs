@@ -3,7 +3,8 @@
 //! Конфигурационный API и протокольная основа WireGuard / AmneziaWG.
 //!
 //! Криптографическое ядро WireGuard предоставляется закреплённой зависимостью
-//! Cloudflare BoringTun. Собственное преобразование пакетов AWG пока не реализовано.
+//! Cloudflare BoringTun. AWG framing реализован отдельными модулями с явными
+//! ограничениями по неподдерживаемым расширениям.
 
 /// Прямой доступ к протокольному движку Cloudflare BoringTun.
 #[cfg(feature = "wireguard")]
@@ -19,6 +20,10 @@ pub mod awg;
 /// CPS-парсер и генератор сигнатурных пакетов AmneziaWG.
 #[cfg(feature = "amneziawg")]
 pub mod signature;
+
+/// Основные типы CPS-шаблонов, доступные из корня crate.
+#[cfg(feature = "amneziawg")]
+pub use signature::{SignatureError, SignatureTemplate};
 
 /// Режим протокола, который должен использовать будущий движок.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
