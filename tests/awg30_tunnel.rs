@@ -135,11 +135,7 @@ fn awg30_header_protection_and_transport_are_interoperable_between_tunnels() {
     );
 
     let inner = ipv4_packet();
-    let encrypted = network_packet(
-        client
-            .encapsulate(&inner, &mut buffer, &mut rng)
-            .unwrap(),
-    );
+    let encrypted = network_packet(client.encapsulate(&inner, &mut buffer, &mut rng).unwrap());
     match server
         .decapsulate(None, &encrypted, &mut buffer, &mut rng)
         .unwrap()
