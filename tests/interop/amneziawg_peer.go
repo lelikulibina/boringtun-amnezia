@@ -121,10 +121,11 @@ func main() {
 		uapi.WriteString("s1=12\ns2=12\ns3=12\ns4=12\n")
 		uapi.WriteString("header_protection_key=" + strings.Repeat("66", 32) + "\n")
 	}
-	if *mode == "awg31" {
+	if *mode == "awg31" || *mode == "awg31-nocookies" {
 		uapi.WriteString("random_trailers=true\n")
 		uapi.WriteString("content_padding_addition=1-4\n")
-		uapi.WriteString("disable_cookies=false\n")
+		disableCookies := *mode == "awg31-nocookies"
+		fmt.Fprintf(&uapi, "disable_cookies=%t\\n", disableCookies)
 	}
 	uapi.WriteString("replace_peers=true\n")
 	fmt.Fprintf(&uapi, "public_key=%s\nallowed_ip=10.0.0.0/24\nendpoint=%s\n", *peerPublicKey, *endpoint)
