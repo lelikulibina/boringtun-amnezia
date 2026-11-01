@@ -53,7 +53,8 @@
 
 ### Этап E — интеграция и hardening
 - [x] Детерминированный no-panic regression test декодера на коротких и случайных датаграммах; отдельные проверки malformed и oversized packets.
-- [ ] Полноценный coverage-guided fuzzing парсеров (cargo-fuzz/libFuzzer).
+- [x] Добавлены coverage-guided fuzz targets для AWG decoder и CPS parser на cargo-fuzz/libFuzzer; добавлен ручной и еженедельный workflow.
+- [ ] Выполнить длительные fuzz-campaigns, сохранить найденные regression corpus и разобрать все crash/hang.
 - [ ] Property-based tests, benchmarks и расширенная regression suite.
 - [x] CI feature matrix для no-default, WireGuard, AWG 3.0 и AWG 3.1.
 - [x] CI на Linux/macOS/Windows.
