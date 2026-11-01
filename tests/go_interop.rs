@@ -297,7 +297,7 @@ fn build_wireguard_underload_probes(
     for index in 0..512u32 {
         let mut tunnel = Tunn::new(
             x25519::StaticSecret::from(*local_private_key),
-            peer_public_key.clone(),
+            *peer_public_key,
             None,
             None,
             10_000 + index,
@@ -373,7 +373,7 @@ fn run_wireguard_interop() {
     let rust_public = x25519::PublicKey::from(&rust_secret);
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn("wireguard", &go_secret_bytes, rust_public.as_bytes(), local);
-    let mut tunnel = Tunn::new(rust_secret, go_public.clone(), None, None, 1, None);
+    let mut tunnel = Tunn::new(rust_secret, go_public, None, None, 1, None);
 
     let probes = build_wireguard_underload_probes(&rust_secret_bytes, &go_public);
     force_go_under_load(&mut peer, &probes);
