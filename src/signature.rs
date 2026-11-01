@@ -216,13 +216,9 @@ impl SignatureTemplate {
                     if *length == 0 {
                         continue;
                     }
-                    let mut encoded = vec![0u8; *length];
-                    let mut source_len = 0usize;
-                    for index in (0..*length).rev() {
-                        encoded[index] = (source_len & 0xff) as u8;
-                        source_len >>= 8;
-                    }
-                    output.extend_from_slice(&encoded);
+                    // I1-I5 are rendered with an empty source slice, so the
+                    // big-endian source-length field consists entirely of zeros.
+                    output.resize(output.len() + length, 0);
                 }
             }
         }
@@ -238,7 +234,9 @@ mod tests {
     struct FixedRng(u8);
     impl RngCore for FixedRng {
         fn next_u32(&mut self) -> u32 { self.0 as u32 * 0x0101_0101 }
-        fn next_u64(&mut self) -> u64 { self.next_u32() as u64 * 0x0001_0001_0001_0001 }
+        fn next_u64(&mut self) -> u64 {
+            u64::from(self.next_u32()) | (u64::from(self.next_u32()) << 32)
+        }
         fn fill_bytes(&mut self, dest: &mut [u8]) {
             for byte in dest { *byte = self.0; }
         }
