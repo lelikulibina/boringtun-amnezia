@@ -61,7 +61,13 @@ impl GoPeer {
         peer_public_key: &[u8; 32],
         endpoint: SocketAddr,
     ) -> Self {
-        Self::spawn_with_env("AWG_GO_HELPER", mode, private_key, peer_public_key, endpoint)
+        Self::spawn_with_env(
+            "AWG_GO_HELPER",
+            mode,
+            private_key,
+            peer_public_key,
+            endpoint,
+        )
     }
 
     fn spawn_with_env(
