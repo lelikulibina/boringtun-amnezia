@@ -354,6 +354,7 @@ fn run_wireguard_interop() {
 }
 
 fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cookies: bool) {
+    eprintln!("Starting Go interoperability scenario: {go_mode}");
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
     socket
         .set_read_timeout(Some(Duration::from_secs(10)))
@@ -385,7 +386,13 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cooki
         let response = receive_udp(&socket, &mut udp_buffer);
         let output = tunnel
             .decapsulate(Some(peer.address.ip()), &response, &mut buffer, &mut rng)
-            .expect("decode Go AWG handshake response");
+            .unwrap_or_else(|error| {
+                let prefix = encode_hex(&response[..response.len().min(16)]);
+                panic!(
+                    "decode Go {go_mode} response failed ({} bytes, prefix {prefix}): {error:?}",
+                    response.len()
+                )
+            });
 
         match output {
             AwgTunnelOutput::Done => {
