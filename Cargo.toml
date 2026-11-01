@@ -20,5 +20,6 @@ amneziawg-3-1 = ["amneziawg"]
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 chacha20 = "0.9.1"
 blake2 = "0.10"
+chacha20poly1305 = "0.10"
 # Use the published, versioned upstream library rather than unstable master.
 boringtun = { version = "=0.7.1", default-features = false }
