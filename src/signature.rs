@@ -109,7 +109,7 @@ impl SignatureTemplate {
                         return Err(SignatureError::InvalidArgument(value.into()));
                     }
                     let mut bytes = Vec::with_capacity(hex.len() / 2);
-                    for pair in hex.as_bytes().chunks_exact(2) {
+                    for pair in hex.as_bytes().chunks(2) {
                         let text = std::str::from_utf8(pair)
                             .map_err(|_| SignatureError::InvalidArgument(value.into()))?;
                         bytes.push(
