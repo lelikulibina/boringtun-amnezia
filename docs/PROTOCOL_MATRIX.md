@@ -30,4 +30,4 @@
 
 ## Ограничения и критерии совместимости
 
-Двусторонние тесты Rust↔amneziawg-go проходят для WG/AWG 3.0/3.1, включая Cookie Reply/MAC2 при принудительно активном under-load флаге. Это не проверяет естественное достижение порога очереди handshake и ротацию cookie secret. До заявления полной совместимости нужны golden vectors, differential tests, естественный overload stress test и отдельная проверка с upstream wireguard-go. Ненулевые пользовательские таймеры и padding автоматически генерируемых BoringTun keepalive пока явно не поддерживаются.
+Двусторонние тесты Rust↔amneziawg-go проходят для WG/AWG 3.0/3.1, включая Cookie Reply/MAC2 при принудительно активном under-load флаге. Отдельный изолированный тест вызывает реальный IsUnderLoad() с очередью на пороге. Это не проверяет реальное заполнение live handshake queue сетевым потоком и ротацию cookie secret. До заявления полной совместимости нужны golden vectors, differential tests, live overload stress test и отдельная проверка с upstream wireguard-go. Ненулевые пользовательские таймеры и padding автоматически генерируемых BoringTun keepalive пока явно не поддерживаются.
