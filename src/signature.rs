@@ -4,7 +4,7 @@
 //! В I-пакетах входные данные пусты: поэтому d/ds генерируют ноль байт,
 //! а dz записывает длину пустого входа.
 
-use rand_core::RngCore;
+use rand_core::{CryptoRng, RngCore};
 use std::fmt;
 
 const MAX_RANDOM_TAG_SIZE: usize = 1_000;
@@ -195,7 +195,7 @@ impl SignatureTemplate {
     }
 
     /// Генерирует I-пакет. Временная метка передаётся извне для повторяемых тестов.
-    pub fn render<R: RngCore>(
+    pub fn render<R: RngCore + CryptoRng>(
         &self,
         rng: &mut R,
         unix_timestamp: u32,
@@ -248,6 +248,8 @@ mod tests {
     use super::*;
 
     struct FixedRng(u8);
+
+    impl CryptoRng for FixedRng {}
     impl RngCore for FixedRng {
         fn next_u32(&mut self) -> u32 {
             self.0 as u32 * 0x0101_0101
