@@ -97,7 +97,7 @@ pub fn parse_optional_range(value: &str) -> Result<Option<ValueRange>, ConfigErr
 }
 
 /// Параметры маскирования заголовков AWG 3+.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct HeaderObfuscation {
     /// Значение H1 — тип заголовка handshake initiation.
     pub h1: Option<ValueRange>,
@@ -109,6 +109,22 @@ pub struct HeaderObfuscation {
     pub h4: Option<ValueRange>,
     /// Ключ защиты заголовков. Секрет не должен попадать в логи.
     pub header_protection_key: Option<[u8; 32]>,
+}
+
+impl core::fmt::Debug for HeaderObfuscation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HeaderObfuscation")
+            .field("h1", &self.h1)
+            .field("h2", &self.h2)
+            .field("h3", &self.h3)
+            .field("h4", &self.h4)
+            // Never expose key material through derived configuration Debug output.
+            .field(
+                "header_protection_key",
+                &self.header_protection_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 /// Дополнение пакетов AWG.
@@ -471,6 +487,16 @@ mod tests {
                 Err(ConfigError::HeaderProtectionRequiresAllPaddingAtLeast12)
             );
         }
+    }
+
+    #[test]
+    fn header_protection_key_is_redacted_from_configuration_debug() {
+        let mut config = AmneziaConfig::default();
+        config.headers.header_protection_key = Some([0xab; 32]);
+
+        let rendered = format!("{config:?}");
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(!rendered.contains("abababab"));
     }
 
     #[test]
