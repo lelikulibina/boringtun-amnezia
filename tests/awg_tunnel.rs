@@ -1,3 +1,5 @@
+#![cfg(feature = "amneziawg-3-1")]
+
 use boringtun_amnezia::awg::tunnel::{AwgTunnel, AwgTunnelOutput};
 use boringtun_amnezia::wireguard::x25519;
 use boringtun_amnezia::{
