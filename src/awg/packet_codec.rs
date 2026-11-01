@@ -6,11 +6,11 @@
 //! Случайные H-диапазоны требуют переноса MAC-генерации внутрь форка BoringTun.
 
 use crate::{AmneziaConfig, ValueRange};
+use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use rand_core::RngCore;
 use std::fmt;
-use boringtun::noise::{Packet, Tunn};
 
 const MAX_UDP_PAYLOAD: usize = 65_507;
 const HEADER_PROTECTION_NONCE_SIZE: usize = 12;
@@ -47,7 +47,6 @@ impl MessageKind {
             Packet::PacketData(_) => Self::Transport,
         }
     }
-
 }
 
 /// Ошибки создания или применения AWG packet codec.
@@ -70,13 +69,18 @@ pub enum PacketCodecError {
 impl fmt::Display for PacketCodecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidCanonicalPacket => f.write_str("некорректный канонический WireGuard-пакет"),
+            Self::InvalidCanonicalPacket => {
+                f.write_str("некорректный канонический WireGuard-пакет")
+            }
             Self::InvalidDatagram => f.write_str("некорректный AWG-датаграмм"),
             Self::HeaderProtectionPaddingTooSmall => {
                 f.write_str("header protection требует S1-S4 не меньше 12 байт")
             }
             Self::UnsupportedOption(option) => {
-                write!(f, "параметр AWG пока не поддерживается этим packet codec: {option}")
+                write!(
+                    f,
+                    "параметр AWG пока не поддерживается этим packet codec: {option}"
+                )
             }
             Self::PacketTooLarge => f.write_str("AWG-датаграмм превышает максимальный UDP payload"),
             Self::InvalidCipherParameters => f.write_str("неверные параметры ChaCha20"),
@@ -112,7 +116,12 @@ impl AwgPacketCodec {
         ];
         for (range, expected) in expected_headers {
             if let Some(range) = range {
-                if range != (ValueRange { min: expected, max: expected }) {
+                if range
+                    != (ValueRange {
+                        min: expected,
+                        max: expected,
+                    })
+                {
                     return Err(PacketCodecError::UnsupportedOption(
                         "произвольные H1-H4 требуют пересчёта MAC внутри BoringTun",
                     ));
@@ -153,7 +162,9 @@ impl AwgPacketCodec {
         let header_protection_key = config.headers.header_protection_key;
 
         if header_protection_key.is_some()
-            && padding.iter().any(|value| *value < HEADER_PROTECTION_NONCE_SIZE)
+            && padding
+                .iter()
+                .any(|value| *value < HEADER_PROTECTION_NONCE_SIZE)
         {
             return Err(PacketCodecError::HeaderProtectionPaddingTooSmall);
         }
@@ -418,7 +429,10 @@ mod tests {
     #[test]
     fn rejects_malformed_and_oversized_datagrams() {
         let codec = AwgPacketCodec::new(&config(false)).unwrap();
-        assert_eq!(codec.decode(&[0, 1, 2]), Err(PacketCodecError::InvalidDatagram));
+        assert_eq!(
+            codec.decode(&[0, 1, 2]),
+            Err(PacketCodecError::InvalidDatagram)
+        );
         assert_eq!(
             codec.decode(&vec![0; MAX_UDP_PAYLOAD + 1]),
             Err(PacketCodecError::PacketTooLarge)
@@ -443,6 +457,9 @@ mod tests {
 
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = sender.encode(&packet, &mut FixedRng(3)).unwrap();
-        assert_eq!(receiver.decode(&encoded), Err(PacketCodecError::InvalidDatagram));
+        assert_eq!(
+            receiver.decode(&encoded),
+            Err(PacketCodecError::InvalidDatagram)
+        );
     }
 }
