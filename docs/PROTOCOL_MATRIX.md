@@ -16,7 +16,7 @@
 | DisableCookies | Нет | Отклоняется как опция 3.1 | Отключает cookie challenge при сохранении MAC1; внешний Go тест подтверждает обход Cookie Reply при under-load |
 | Кастомные таймеры AWG | Стандартные WG | Не реализованы | Не реализованы; ненулевые overrides отклоняются |
 | Padding внутренних keepalive BoringTun | Стандартное поведение | Не реализовано | Не реализовано |
-| Внешняя совместимость с amneziawg-go | Handshake + Cookie Reply/MAC2 under-load + двусторонний IPv4 transport проверены в обе стороны | То же, с H1-H4/header protection | То же, плюс RandomTrailers/ContentPaddingAddition и DisableCookies |
+| Внешняя совместимость с amneziawg-go | WG handshake/transport; Rust server Cookie Reply/MAC2 проверен через AWG 3.1 wrapper с профилем без обфускации | Rust client ↔ Go server: handshake, Cookie Reply/MAC2 и IPv4 transport | То же, плюс RandomTrailers, ContentPaddingAddition и DisableCookies |
 
 ## Текущие доказательства
 
