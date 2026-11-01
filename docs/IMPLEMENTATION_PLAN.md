@@ -16,7 +16,7 @@
 - [x] Подключить опубликованный BoringTun crate 0.7.1.
 - [x] Сохранить лицензию BoringTun.
 - [x] Реэкспортировать Tunn API.
-- [x] Добавить integration tests полного handshake и защищённого transport обмена между двумя туннелями.
+- [x] Добавить integration tests полного WireGuard handshake/transport и AWG 3.0/3.1 tunnel flows.
 - [ ] Добавить interoperability tests с внешним wireguard-go процессом.
 
 ### Этап B — конфигурация AWG
@@ -29,6 +29,7 @@
 
 ### Этап C — AWG packet pipeline
 - [x] S1-S4 padding для всех четырёх типов WG сообщений.
+- [x] Отдельный AWG 3.0 integration test: handshake, header protection и двусторонний transport.
 - [x] ChaCha20 header protection: handshake/cookie целиком, transport header (16 байт) отдельно.
 - [x] H1-H4 ranges и header randomization.
 - [x] Проверка исходного MAC1 перед канонизацией рандомизированных H1/H2 и пересчёт MAC1 для BoringTun после проверки.
