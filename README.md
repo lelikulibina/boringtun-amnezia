@@ -1,30 +1,25 @@
 # BoringTun Amnezia
 
-Rust-библиотека для реализации WireGuard и AmneziaWG 3.0/3.1 на основе архитектуры Cloudflare BoringTun.
+Rust-проект для поддержки стандартного WireGuard и AmneziaWG 3.0/3.1.
 
-> **Статус разработки:** начальный каркас. Сейчас библиотека предоставляет только типы конфигурации и их валидацию. Она не реализует криптографический handshake, транспорт WireGuard или обфускацию AmneziaWG и пока не предназначена для создания VPN-туннелей.
+## Текущий статус
 
-## Цели
+- **WireGuard:** протокольный движок предоставляется Cloudflare BoringTun 0.7.1 через закреплённую зависимость Cargo. Добавлен публичный re-export API и интеграционный тест полного handshake/обмена пакетом.
+- **AmneziaWG 3.0/3.1:** пока не реализованы. Конфигурационные типы являются только начальным API; они не преобразуют сетевые пакеты.
+- **Сетевой/TUN стек:** не входит в текущую библиотечную обёртку.
 
-- сохранить побайтовую совместимость классического WireGuard;
-- реализовать отдельные, явно версионированные режимы AmneziaWG 3.0 и 3.1;
-- использовать Cloudflare BoringTun как Rust-основу, а amneziawg-go и wireguard-go — как поведенческие эталоны;
-- проверять совместимость дифференциальными и двусторонними интеграционными тестами.
-
-## Эталонные проекты
-
-- https://github.com/cloudflare/boringtun
-- https://github.com/amnezia-vpn/amneziawg-go
-- https://github.com/WireGuard/wireguard-go
+Не используйте AWG-режимы в production до завершения двусторонних interoperability-тестов.
 
 ## Сборка и тесты
 
     cargo fmt --all -- --check
-    cargo test --workspace
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test --workspace --all-features
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-Подробный план и критерии готовности: docs/IMPLEMENTATION_PLAN.md.
+## Upstream
 
-## Безопасность
+- Cloudflare BoringTun: https://github.com/cloudflare/boringtun
+- AmneziaWG Go: https://github.com/amnezia-vpn/amneziawg-go
+- WireGuard Go: https://github.com/WireGuard/wireguard-go
 
-До завершения криптографических и interoperability-тестов не используйте проект для защиты реального трафика. Не отключайте проверки аутентичности и не используйте самодельную криптографию.
+Аудит и план: docs/UPSTREAM.md и docs/IMPLEMENTATION_PLAN.md.
