@@ -16,7 +16,7 @@
 | DisableCookies | Нет | Отклоняется как опция 3.1 | Отключает cookie challenge, сохраняя MAC1 validation |
 | Кастомные таймеры AWG | Стандартные WG | Не реализованы | Не реализованы; ненулевые overrides отклоняются |
 | Padding внутренних keepalive BoringTun | Стандартное поведение | Не реализовано | Не реализовано |
-| Внешняя совместимость с amneziawg-go | WG handshake + двусторонний IPv4 transport проверены | Базовый handshake + двусторонний IPv4 transport проверены | Базовый handshake + двусторонний IPv4 transport проверены |
+| Внешняя совместимость с amneziawg-go | Handshake + Cookie Reply/MAC2 under-load + двусторонний IPv4 transport проверены | То же, с H1-H4/header protection | То же, плюс RandomTrailers/ContentPaddingAddition |
 
 ## Текущие доказательства
 
@@ -25,9 +25,9 @@
 - AWG 3.1: интеграционные тесты проверяют двусторонний transport, ContentPaddingAddition, RandomTrailers, CPS и junk preambles.
 - MAC2: внутренний end-to-end тест с принудительным rate limiter проверяет Cookie Reply, сохранение cookie, рандомизированный повторный handshake и успешный ответ.
 - Decoder hardening: есть детерминированный тест коротких/случайных датаграмм и проверки ошибочных/слишком больших пакетов.
-- Go interoperability CI: pinned amneziawg-go commit `b5928efb6ca19f0153958460c3d141f04abc5c2e` успешно прошёл WG, AWG 3.0 и AWG 3.1 handshake/двусторонний IPv4 transport.
+- Go interoperability CI: pinned amneziawg-go commit `b5928efb6ca19f0153958460c3d141f04abc5c2e` успешно прошёл WG, AWG 3.0 и AWG 3.1 handshake, Cookie Reply/MAC2 retry при принудительно активном under-load состоянии и двусторонний IPv4 transport.
 - CI: Linux и macOS прошли форматирование и тесты; Windows проверяется отдельно на текущем HEAD.
 
 ## Ограничения и критерии совместимости
 
-Базовые двусторонние тесты Rust↔amneziawg-go уже проходят для WG/AWG 3.0/3.1, но это не доказывает полную совместимость. До её заявления необходимо добавить golden vectors и differential tests, отдельную проверку cookie challenge/MAC2 under-load и cookie rotation; также остаётся отдельная проверка с upstream wireguard-go. Ненулевые пользовательские таймеры и padding автоматически генерируемых BoringTun keepalive пока явно не поддерживаются.
+Двусторонние тесты Rust↔amneziawg-go проходят для WG/AWG 3.0/3.1, включая Cookie Reply/MAC2 при принудительно активном under-load флаге. Это не проверяет естественное достижение порога очереди handshake и ротацию cookie secret. До заявления полной совместимости нужны golden vectors, differential tests, естественный overload stress test и отдельная проверка с upstream wireguard-go. Ненулевые пользовательские таймеры и padding автоматически генерируемых BoringTun keepalive пока явно не поддерживаются.
