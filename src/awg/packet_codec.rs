@@ -275,7 +275,7 @@ impl AwgPacketCodec {
             config.headers.h3.unwrap_or(ValueRange { min: 3, max: 3 }),
             config.headers.h4.unwrap_or(ValueRange { min: 4, max: 4 }),
         ];
-        for (index, range) in header_ranges.iter().enumerate() {
+        for range in &header_ranges {
             if range.min > range.max {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
             }
@@ -909,7 +909,7 @@ mod tests {
     #[test]
     fn codec_debug_redacts_header_protection_and_mac1_keys() {
         let config = base_config(true);
-        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0xa5; 32], &[0x5a; 32]).unwrap();
+        let codec = AwgPacketCodec::new_with_keys(&config, &[0xa5; 32], &[0x5a; 32]).unwrap();
         let rendered = format!("{codec:?}");
 
         assert!(rendered.contains("[REDACTED]"));
