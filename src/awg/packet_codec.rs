@@ -261,7 +261,7 @@ impl AwgPacketCodec {
         let header_value = pick_header_value(header_range, rng);
         message[..4].copy_from_slice(&header_value.to_le_bytes());
 
-        if matches!(
+        let outbound_handshake_context = if matches!(
             kind,
             MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
         ) {
@@ -283,8 +283,10 @@ impl AwgPacketCodec {
             let mac1: [u8; 16] = message[mac1_offset..mac1_offset + 16]
                 .try_into()
                 .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
-            self.last_outbound_handshake_context = Some((sender_index, mac1));
-        }
+            Some((sender_index, mac1))
+        } else {
+            None
+        };
 
         let message_len = message.len();
         let trailer_len = if self.random_trailers && kind != MessageKind::Transport {
@@ -323,6 +325,9 @@ impl AwgPacketCodec {
         }
         if trailer_len > 0 {
             rng.fill_bytes(&mut datagram[message_end..]);
+        }
+        if let Some(context) = outbound_handshake_context {
+            self.last_outbound_handshake_context = Some(context);
         }
 
         Ok(datagram)
