@@ -115,7 +115,7 @@ func main() {
 	defer dev.Close()
 
 	var uapi strings.Builder
-	fmt.Fprintf(&uapi, "private_key=%s\nlisten_port=0\n", *privateKey)
+	fmt.Fprintf(&uapi, "private_key=%s\n", *privateKey)
 	if *mode != "wireguard" {
 		uapi.WriteString("h1=100-200\nh2=300-400\nh3=500-600\nh4=700-800\n")
 		uapi.WriteString("s1=12\ns2=12\ns3=12\ns4=12\n")
