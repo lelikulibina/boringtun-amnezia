@@ -52,3 +52,31 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Проверить сборку и тесты всех протоколов
         run: cargo test --workspace --all-features
+
+  go-interop:
+    name: Двусторонняя совместимость с amneziawg-go
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить Rust проект
+        uses: actions/checkout@v4
+      - name: Установить стабильный Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Установить Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
+      - name: Получить закреплённую AWG Go реализацию
+        run: |
+          git clone --depth 1 https://github.com/amnezia-vpn/amneziawg-go.git "$RUNNER_TEMP/amneziawg-go"
+          git -C "$RUNNER_TEMP/amneziawg-go" checkout b5928efb6ca19f0153958460c3d141f04abc5c2e
+      - name: Собрать тестовый Go peer
+        run: |
+          mkdir -p "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer"
+          cp tests/interop/amneziawg_peer.go "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer/main.go"
+          test -z "$(gofmt -l "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer/main.go")"
+          cd "$RUNNER_TEMP/amneziawg-go"
+          go build -o "$RUNNER_TEMP/awg-go-peer" ./cmd/interop-peer
+      - name: Запустить двусторонние WG/AWG interoperability тесты
+        env:
+          AWG_GO_HELPER: ${{ runner.temp }}/awg-go-peer
+        run: cargo test --test go_interop -- --ignored --nocapture
