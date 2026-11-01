@@ -6,6 +6,8 @@
 //! Cloudflare BoringTun. AWG framing реализован отдельными модулями с явными
 //! ограничениями по неподдерживаемым расширениям.
 
+use zeroize::Zeroize;
+
 /// Прямой доступ к протокольному движку Cloudflare BoringTun.
 #[cfg(feature = "wireguard")]
 pub mod wireguard {
