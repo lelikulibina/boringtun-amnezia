@@ -2,19 +2,65 @@ package main
 
 import (
 	"bufio"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/blake2s"
 
 	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
 	"github.com/amnezia-vpn/amneziawg-go/v3/device"
 	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
 )
+
+func sendMac1Probes(endpoint, peerPublicKey string) error {
+	peerPublic, err := hex.DecodeString(peerPublicKey)
+	if err != nil {
+		return fmt.Errorf("decode peer public key: %w", err)
+	}
+	if len(peerPublic) != 32 {
+		return fmt.Errorf("peer public key has %d bytes, want 32", len(peerPublic))
+	}
+
+	keyInput := append([]byte("mac1----"), peerPublic...)
+	mac1Key := blake2s.Sum256(keyInput)
+	remote, err := net.ResolveUDPAddr("udp", endpoint)
+	if err != nil {
+		return fmt.Errorf("resolve Rust endpoint: %w", err)
+	}
+	conn, err := net.DialUDP("udp", nil, remote)
+	if err != nil {
+		return fmt.Errorf("open MAC1 probe socket: %w", err)
+	}
+	defer conn.Close()
+
+	for index := 0; index < 10; index++ {
+		packet := make([]byte, 148)
+		binary.LittleEndian.PutUint32(packet[0:4], 1)
+		binary.LittleEndian.PutUint32(packet[4:8], uint32(0x7000+index))
+		if _, err := cryptorand.Read(packet[8:116]); err != nil {
+			return fmt.Errorf("randomize probe body: %w", err)
+		}
+		mac, err := blake2s.New128(mac1Key[:])
+		if err != nil {
+			return fmt.Errorf("create MAC1 hash: %w", err)
+		}
+		_, _ = mac.Write(packet[:116])
+		copy(packet[116:132], mac.Sum(nil))
+		if _, err := conn.Write(packet); err != nil {
+			return fmt.Errorf("send MAC1 probe: %w", err)
+		}
+	}
+	return nil
+}
 
 type channelTun struct {
 	in     chan []byte
@@ -116,7 +162,7 @@ func main() {
 
 	var uapi strings.Builder
 	fmt.Fprintf(&uapi, "private_key=%s\n", *privateKey)
-	if *mode != "wireguard" {
+	if strings.HasPrefix(*mode, "awg") {
 		uapi.WriteString("h1=100-200\nh2=300-400\nh3=500-600\nh4=700-800\n")
 		uapi.WriteString("s1=12\ns2=12\ns3=12\ns4=12\n")
 		uapi.WriteString("header_protection_key=" + strings.Repeat("66", 32) + "\n")
@@ -139,11 +185,15 @@ func main() {
 		os.Exit(1)
 	}
 	tunDevice.events <- tun.EventUp
-	if !device.VerifyNaturalUnderLoadThresholdForInterop() {
-		fmt.Fprintln(os.Stderr, "Go natural under-load queue threshold check failed")
-		os.Exit(1)
+	if *mode == "wg-client" {
+		fmt.Println("READY=1")
+	} else {
+		if !device.VerifyNaturalUnderLoadThresholdForInterop() {
+			fmt.Fprintln(os.Stderr, "Go natural under-load queue threshold check failed")
+			os.Exit(1)
+		}
+		device.ForceUnderLoadForInterop(dev)
 	}
-	device.ForceUnderLoadForInterop(dev)
 
 	state, err := dev.IpcGet()
 	if err != nil {
@@ -156,7 +206,11 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("PORT=%s\n", port)
-	fmt.Println("UNDERLOAD=1")
+	if *mode == "wg-client" {
+		fmt.Println("READY=1")
+	} else {
+		fmt.Println("UNDERLOAD=1")
+	}
 
 	go func() {
 		for {
@@ -174,6 +228,14 @@ func main() {
 		line := scanner.Text()
 		if line == "QUIT" {
 			return
+		}
+		if line == "FLOOD" {
+			if err := sendMac1Probes(*endpoint, *peerPublicKey); err != nil {
+				fmt.Fprintln(os.Stderr, "MAC1 flood:", err)
+				os.Exit(1)
+			}
+			fmt.Println("FLOOD_SENT=10")
+			continue
 		}
 		if strings.HasPrefix(line, "SEND:") {
 			packet, err := hex.DecodeString(strings.TrimPrefix(line, "SEND:"))
