@@ -391,10 +391,11 @@ impl AwgPacketCodec {
 
             let received_header = u32::from_le_bytes(candidate[..4].try_into().unwrap());
             if received_header != kind.type_id() {
-                if matches!(
+                let handshake = matches!(
                     kind,
                     MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-                ) {
+                );
+                let mac1_key = if handshake {
                     let key = self
                         .inbound_mac1_key
                         .as_ref()
@@ -403,16 +404,25 @@ impl AwgPacketCodec {
                     // A random header candidate can overlap bytes from another
                     // message kind (notably with RandomTrailers enabled). Verify
                     // the sender's MAC1 before canonicalizing the type field;
-                    // otherwise an arbitrary transport datagram could be
-                    // rewritten into a syntactically valid handshake candidate.
+                    // otherwise arbitrary bytes could be rewritten into a
+                    // syntactically valid handshake candidate.
                     if !verify_mac1(&candidate, key) {
                         continue;
                     }
+                    Some(key)
+                } else {
+                    None
+                };
+
+                // MAC1 authenticates the randomized wire header. After it has
+                // been verified, restore the canonical type and recompute MAC1
+                // for BoringTun's unmodified WireGuard parser.
+                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
+                if let Some(key) = mac1_key {
                     if recompute_mac1(&mut candidate, key).is_err() {
                         continue;
                     }
                 }
-                candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
             }
 
             let parsed = match Tunn::parse_incoming_packet(&candidate) {
