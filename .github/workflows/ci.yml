@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "work/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Проверка Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить исходный код
+        uses: actions/checkout@v4
+      - name: Установить стабильный Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Проверить форматирование
+        run: cargo fmt --all -- --check
+      - name: Запустить тесты
+        run: cargo test --workspace --all-features
+      - name: Проверить Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
