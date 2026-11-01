@@ -54,7 +54,7 @@ jobs:
         run: cargo test --workspace --all-features
 
   go-interop:
-    name: Двусторонняя совместимость с amneziawg-go
+    name: Двусторонняя совместимость с wireguard-go и amneziawg-go
     runs-on: ubuntu-latest
     steps:
       - name: Получить Rust проект
