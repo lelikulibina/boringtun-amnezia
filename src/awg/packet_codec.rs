@@ -101,7 +101,10 @@ impl fmt::Display for PacketCodecError {
             }
             Self::PacketTooLarge => f.write_str("AWG-датаграмм превышает максимальный UDP payload"),
             Self::DestinationBufferTooSmall { required, actual } => {
-                write!(f, "буфер слишком мал: требуется {required} байт, получено {actual}")
+                write!(
+                    f,
+                    "буфер слишком мал: требуется {required} байт, получено {actual}"
+                )
             }
             Self::InvalidCipherParameters => f.write_str("неверные параметры ChaCha20"),
         }
