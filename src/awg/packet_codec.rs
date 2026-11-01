@@ -11,7 +11,7 @@ use blake2::{Blake2s256, Blake2sMac, Digest};
 use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand_core::{CryptoRng, RngCore};
 use std::fmt;
@@ -710,6 +710,45 @@ fn derive_mac1_key(public_key: &[u8; 32]) -> [u8; 32] {
     hash.update(b"mac1----");
     hash.update(public_key);
     hash.finalize().into()
+}
+
+fn derive_cookie_key(public_key: &[u8; 32]) -> [u8; 32] {
+    let mut hash = Blake2s256::new();
+    hash.update(b"cookie--");
+    hash.update(public_key);
+    hash.finalize().into()
+}
+
+fn verify_mac2(packet: &[u8], cookie: &[u8; 16]) -> bool {
+    let Some(mac2_offset) = packet.len().checked_sub(16) else {
+        return false;
+    };
+    let Ok(mut mac) = Blake2sMac::<U16>::new_from_slice(cookie) else {
+        return false;
+    };
+    blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
+    let expected = mac.finalize_fixed();
+    let mut difference = 0u8;
+    for (expected_byte, received_byte) in expected.iter().zip(&packet[mac2_offset..]) {
+        difference |= *expected_byte ^ *received_byte;
+    }
+    difference == 0
+}
+
+fn recompute_mac2(
+    packet: &mut [u8],
+    cookie: &[u8; 16],
+) -> Result<(), PacketCodecError> {
+    let mac2_offset = packet
+        .len()
+        .checked_sub(16)
+        .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+    let mut mac = Blake2sMac::<U16>::new_from_slice(cookie)
+        .map_err(|_| PacketCodecError::Mac2ComputationFailed)?;
+    blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
+    let digest = mac.finalize_fixed();
+    packet[mac2_offset..].copy_from_slice(&digest);
+    Ok(())
 }
 
 fn verify_mac1(packet: &[u8], key: &[u8; 32]) -> bool {
