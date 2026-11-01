@@ -140,7 +140,6 @@ pub struct AwgPacketCodec {
     header_ranges: [ValueRange; 4],
     inbound_mac1_key: Option<[u8; 32]>,
     outbound_mac1_key: Option<[u8; 32]>,
-    disable_cookies: bool,
     random_trailers: bool,
 }
 
@@ -262,7 +261,6 @@ impl AwgPacketCodec {
             header_ranges,
             inbound_mac1_key,
             outbound_mac1_key,
-            disable_cookies: config.disable_cookies,
             random_trailers: config.random_trailers,
         })
     }
@@ -297,13 +295,9 @@ impl AwgPacketCodec {
                     .ok_or(PacketCodecError::MissingMac1Keys)?;
                 recompute_mac1(&mut message, key)?;
             }
-            if self.disable_cookies {
-                let mac2_offset = message
-                    .len()
-                    .checked_sub(16)
-                    .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
-                message[mac2_offset..].fill(0);
-            }
+            // Preserve MAC2 exactly as BoringTun produced it. DisableCookies
+            // suppresses cookie challenges on receive; it does not erase a
+            // previously learned cookie or forbid outgoing MAC2 values.
         }
 
         let message_len = message.len();
@@ -713,6 +707,21 @@ mod tests {
             AwgPacketCodec::new(&config).err(),
             Some(PacketCodecError::HeaderRandomizationRequiresDisableCookies)
         );
+    }
+
+    #[test]
+    fn disable_cookies_preserves_existing_mac2_value() {
+        let mut config = base_config(false);
+        config.disable_cookies = true;
+        config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
+        let codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+
+        let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
+        packet[packet.len() - 16..].fill(0x77);
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x31)).unwrap();
+
+        assert_eq!(&encoded[12 + 148 - 16..12 + 148], &[0x77; 16]);
+        assert_eq!(codec.decode(&encoded).unwrap()[148 - 16..], [0x77; 16]);
     }
 
     #[test]
