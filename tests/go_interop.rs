@@ -400,8 +400,7 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cooki
             }
             other => {
                 assert_eq!(
-                    cookie_challenge_received,
-                    !disable_cookies,
+                    cookie_challenge_received, !disable_cookies,
                     "Go AWG peer cookie challenge behavior did not match DisableCookies"
                 );
                 send_awg_output(&socket, peer.address, other);
@@ -411,8 +410,7 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cooki
         }
     }
     assert_eq!(
-        cookie_challenge_received,
-        !disable_cookies,
+        cookie_challenge_received, !disable_cookies,
         "Go AWG peer cookie challenge behavior did not match DisableCookies"
     );
     assert!(
