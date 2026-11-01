@@ -145,6 +145,12 @@ pub struct AwgPacketCodec {
     header_ranges: [ValueRange; 4],
     inbound_mac1_key: Option<[u8; 32]>,
     outbound_mac1_key: Option<[u8; 32]>,
+    local_cookie_key: Option<[u8; 32]>,
+    peer_cookie_key: Option<[u8; 32]>,
+    read_cookie: Option<[u8; 16]>,
+    write_cookie: Option<[u8; 16]>,
+    last_inbound_handshake_context: Option<(u32, [u8; 16])>,
+    last_outbound_handshake_context: Option<(u32, [u8; 16], [u8; 16])>,
     random_trailers: bool,
 }
 
@@ -158,6 +164,18 @@ impl Drop for AwgPacketCodec {
         }
         if let Some(key) = self.outbound_mac1_key.as_mut() {
             key.zeroize();
+        }
+        if let Some(key) = self.local_cookie_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(key) = self.peer_cookie_key.as_mut() {
+            key.zeroize();
+        }
+        if let Some(cookie) = self.read_cookie.as_mut() {
+            cookie.zeroize();
+        }
+        if let Some(cookie) = self.write_cookie.as_mut() {
+            cookie.zeroize();
         }
     }
 }
@@ -179,6 +197,10 @@ impl fmt::Debug for AwgPacketCodec {
                 "outbound_mac1_key",
                 &self.outbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("local_cookie_key", &self.local_cookie_key.as_ref().map(|_| "[REDACTED]"))
+            .field("peer_cookie_key", &self.peer_cookie_key.as_ref().map(|_| "[REDACTED]"))
+            .field("read_cookie", &self.read_cookie.as_ref().map(|_| "[REDACTED]"))
+            .field("write_cookie", &self.write_cookie.as_ref().map(|_| "[REDACTED]"))
             .field("random_trailers", &self.random_trailers)
             .finish()
     }
@@ -190,7 +212,7 @@ impl AwgPacketCodec {
     /// Подходит для стандартных H1/H2 и для рандомизации H3/H4.
     /// Рандомизация H1/H2 требует конструктора new_with_keys.
     pub fn new(config: &AmneziaConfig) -> Result<Self, PacketCodecError> {
-        Self::new_internal(config, None, None)
+        Self::new_internal(config, None, None, None, None)
     }
 
     /// Создаёт codec с локальным и удалённым public key для MAC1.
@@ -205,13 +227,23 @@ impl AwgPacketCodec {
     ) -> Result<Self, PacketCodecError> {
         let inbound_mac1_key = derive_mac1_key(local_public_key);
         let outbound_mac1_key = derive_mac1_key(peer_public_key);
-        Self::new_internal(config, Some(inbound_mac1_key), Some(outbound_mac1_key))
+        let local_cookie_key = derive_cookie_key(local_public_key);
+        let peer_cookie_key = derive_cookie_key(peer_public_key);
+        Self::new_internal(
+            config,
+            Some(inbound_mac1_key),
+            Some(outbound_mac1_key),
+            Some(local_cookie_key),
+            Some(peer_cookie_key),
+        )
     }
 
     fn new_internal(
         config: &AmneziaConfig,
         inbound_mac1_key: Option<[u8; 32]>,
         outbound_mac1_key: Option<[u8; 32]>,
+        local_cookie_key: Option<[u8; 32]>,
+        peer_cookie_key: Option<[u8; 32]>,
     ) -> Result<Self, PacketCodecError> {
         let timing_overrides = [
             config.timings.rekey_after_time,
@@ -237,10 +269,6 @@ impl AwgPacketCodec {
         for (index, range) in header_ranges.iter().enumerate() {
             if range.min > range.max {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
-            }
-            let canonical = index as u32 + 1;
-            if index < 2 && !range_is_single_value(*range, canonical) && !config.disable_cookies {
-                return Err(PacketCodecError::HeaderRandomizationRequiresDisableCookies);
             }
         }
         for left_index in 0..header_ranges.len() {
@@ -285,6 +313,12 @@ impl AwgPacketCodec {
             header_ranges,
             inbound_mac1_key,
             outbound_mac1_key,
+            local_cookie_key,
+            peer_cookie_key,
+            read_cookie: None,
+            write_cookie: None,
+            last_inbound_handshake_context: None,
+            last_outbound_handshake_context: None,
             random_trailers: config.random_trailers,
         })
     }
