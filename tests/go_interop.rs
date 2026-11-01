@@ -352,8 +352,10 @@ fn run_rust_server_cookie_interop(disable_cookies: bool) {
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn("wg-client", &go_secret_bytes, rust_public.as_bytes(), local);
 
-    let mut config = AmneziaConfig::default();
-    config.disable_cookies = disable_cookies;
+    let config = AmneziaConfig {
+        disable_cookies,
+        ..AmneziaConfig::default()
+    };
     let mut tunnel = AwgTunnel::new(
         ProtocolMode::AmneziaWg31,
         rust_secret,
