@@ -167,7 +167,7 @@ func main() {
 		uapi.WriteString("s1=12\ns2=12\ns3=12\ns4=12\n")
 		uapi.WriteString("header_protection_key=" + strings.Repeat("66", 32) + "\n")
 	}
-	if *mode == "awg31" || *mode == "awg31-nocookies" {
+	if strings.HasPrefix(*mode, "awg31") {
 		uapi.WriteString("random_trailers=true\n")
 		uapi.WriteString("content_padding_addition=1-4\n")
 		disableCookies := *mode == "awg31-nocookies"
