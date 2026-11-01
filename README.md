@@ -30,3 +30,16 @@ Rust-проект для поддержки стандартного WireGuard �
 - WireGuard Go: https://github.com/WireGuard/wireguard-go
 
 Аудит и план: docs/UPSTREAM.md и docs/IMPLEMENTATION_PLAN.md.
+
+## Feature flags
+
+- `wireguard` — базовый WireGuard engine.
+- `amneziawg-3-0` — AWG 3.0 (автоматически включает общую AWG-часть и WireGuard).
+- `amneziawg-3-1` — AWG 3.1 (автоматически включает общую AWG-часть и WireGuard).
+- По умолчанию включены WireGuard, AWG 3.0 и AWG 3.1. Выбор отключённого режима проверяется через `EngineConfig::validate`.
+
+Примеры минимальных сборок:
+
+    cargo test --no-default-features --features wireguard
+    cargo test --no-default-features --features amneziawg-3-0
+    cargo test --no-default-features --features amneziawg-3-1
