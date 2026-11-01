@@ -475,6 +475,8 @@ fn run_wireguard_interop() {
     let mut udp_buffer = [0u8; 2048];
     let mut established = false;
     let mut cookie_challenge_received = false;
+    let mut cookie_challenge_count = 0usize;
+    let mut cookie_rotation_triggered = false;
 
     for _ in 0..3 {
         socket.send_to(&initiation, peer.address).unwrap();
@@ -606,6 +608,18 @@ fn run_awg_interop(
         cookie_challenge_received, !disable_cookies,
         "Go AWG peer cookie challenge behavior did not match DisableCookies"
     );
+    assert_eq!(
+        cookie_challenge_count,
+        if disable_cookies {
+            0
+        } else if rotate_cookie {
+            2
+        } else {
+            1
+        },
+        "Go AWG peer cookie challenge count did not match rotation scenario"
+    );
+    assert_eq!(cookie_rotation_triggered, rotate_cookie);
     assert!(
         established,
         "AWG handshake did not complete after MAC2 retry"
