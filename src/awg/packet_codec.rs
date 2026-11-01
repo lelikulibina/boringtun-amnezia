@@ -209,11 +209,17 @@ impl AwgPacketCodec {
         inbound_mac1_key: Option<[u8; 32]>,
         outbound_mac1_key: Option<[u8; 32]>,
     ) -> Result<Self, PacketCodecError> {
-        if config.timings.rekey_after_time.is_some()
-            || config.timings.rekey_timeout.is_some()
-            || config.timings.reject_after_time.is_some()
-            || config.timings.keepalive_timeout.is_some()
-            || config.timings.max_handshake_attempts.is_some()
+        let timing_overrides = [
+            config.timings.rekey_after_time,
+            config.timings.rekey_timeout,
+            config.timings.reject_after_time,
+            config.timings.keepalive_timeout,
+            config.timings.max_handshake_attempts,
+        ];
+        if timing_overrides
+            .into_iter()
+            .flatten()
+            .any(|range| range.min != 0 || range.max != 0)
         {
             return Err(PacketCodecError::UnsupportedOption("timing overrides"));
         }
@@ -691,6 +697,28 @@ mod tests {
         assert!(!rendered.contains("55555555"));
         assert!(!rendered.contains("a5a5a5a5"));
         assert!(!rendered.contains("5a5a5a5a"));
+    }
+
+    #[test]
+    fn zero_timing_ranges_are_treated_as_disabled() {
+        let mut config = AmneziaConfig::default();
+        config.timings.rekey_after_time = Some(ValueRange { min: 0, max: 0 });
+        config.timings.rekey_timeout = Some(ValueRange { min: 0, max: 0 });
+        config.timings.reject_after_time = Some(ValueRange { min: 0, max: 0 });
+        config.timings.keepalive_timeout = Some(ValueRange { min: 0, max: 0 });
+        config.timings.max_handshake_attempts = Some(ValueRange { min: 0, max: 0 });
+
+        assert!(AwgPacketCodec::new(&config).is_ok());
+    }
+
+    #[test]
+    fn nonzero_timing_overrides_are_rejected_until_the_engine_supports_them() {
+        let mut config = AmneziaConfig::default();
+        config.timings.rekey_after_time = Some(ValueRange { min: 120, max: 121 });
+        assert_eq!(
+            AwgPacketCodec::new(&config).err(),
+            Some(PacketCodecError::UnsupportedOption("timing overrides"))
+        );
     }
 
     #[test]
