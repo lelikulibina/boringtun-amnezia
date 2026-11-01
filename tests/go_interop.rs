@@ -353,7 +353,7 @@ fn run_wireguard_interop() {
     );
 }
 
-fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
+fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool, disable_cookies: bool) {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
     socket
         .set_read_timeout(Some(Duration::from_secs(10)))
@@ -366,7 +366,8 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let rust_public = x25519::PublicKey::from(&rust_secret);
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn(go_mode, &go_secret_bytes, rust_public.as_bytes(), local);
-    let config = awg_config(is_31);
+    let mut config = awg_config(is_31);
+    config.disable_cookies = disable_cookies;
     let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public, None, None, 1, &config)
         .expect("create Rust AWG tunnel");
 
@@ -388,15 +389,20 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
 
         match output {
             AwgTunnelOutput::Done => {
+                assert!(
+                    !disable_cookies,
+                    "Go peer sent Cookie Reply despite DisableCookies=true"
+                );
                 cookie_challenge_received = true;
                 initiation = tunnel
                     .initiate_handshake(&mut buffer, true, &mut rng)
                     .expect("format AWG MAC2 cookie retry");
             }
             other => {
-                assert!(
+                assert_eq!(
                     cookie_challenge_received,
-                    "Go AWG peer skipped the expected MAC2 cookie challenge"
+                    !disable_cookies,
+                    "Go AWG peer cookie challenge behavior did not match DisableCookies"
                 );
                 send_awg_output(&socket, peer.address, other);
                 established = true;
@@ -404,9 +410,10 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
             }
         }
     }
-    assert!(
+    assert_eq!(
         cookie_challenge_received,
-        "Go AWG peer did not issue a MAC2 cookie challenge"
+        !disable_cookies,
+        "Go AWG peer cookie challenge behavior did not match DisableCookies"
     );
     assert!(
         established,
@@ -432,6 +439,7 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
 #[ignore = "requires the pinned amneziawg-go helper built by the go-interop CI job"]
 fn interoperates_with_pinned_wireguard_and_amneziawg_go_in_both_directions() {
     run_wireguard_interop();
-    run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false);
-    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true);
+    run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false);
+    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false);
+    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31-nocookies", true, true);
 }
