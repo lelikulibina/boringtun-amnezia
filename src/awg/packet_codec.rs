@@ -361,7 +361,7 @@ mod tests {
     }
 
     fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
-    if upper <= 1 {
+    if upper == 0 {
         return 0;
     }
     let upper = upper as u32;
@@ -450,7 +450,7 @@ fn canonical_packet(kind: MessageKind) -> Vec<u8> {
         config.headers.header_protection_key = Some([0; 32]);
         let codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
-        let encoded = codec.encode(&packet, &mut FixedRng(9)).unwrap();
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(9)).unwrap();
         assert_eq!(codec.decode(&encoded).unwrap(), packet);
     }
 
@@ -515,7 +515,7 @@ fn canonical_packet(kind: MessageKind) -> Vec<u8> {
     fn rejects_noncanonical_packets_on_encode() {
         let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
-            codec.encode(&[1, 2, 3, 4], &mut FixedRng(1)),
+            codec.encode(&[1, 2, 3, 4], 500, &mut FixedRng(1)),
             Err(PacketCodecError::InvalidCanonicalPacket)
         );
     }
