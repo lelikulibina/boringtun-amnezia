@@ -403,6 +403,10 @@ impl AwgPacketCodec {
         self.write_cookie = Some(cookie);
     }
 
+    pub(crate) fn has_write_cookie(&self) -> bool {
+        self.write_cookie.is_some()
+    }
+
     /// Извлекает контекст последнего исходящего handshake для CookieReply.
     pub fn take_last_outbound_handshake_context(&mut self) -> Option<(u32, [u8; 16])> {
         self.last_outbound_handshake_context.take()
