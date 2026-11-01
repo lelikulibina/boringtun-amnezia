@@ -557,10 +557,7 @@ mod tests {
         };
         assert_eq!(
             config.validate(),
-            Err(ConfigError::JunkPacketCountTooLarge {
-                count: 65,
-                max: 64
-            })
+            Err(ConfigError::JunkPacketCountTooLarge { count: 65, max: 64 })
         );
     }
 
