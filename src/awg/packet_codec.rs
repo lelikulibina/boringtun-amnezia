@@ -159,7 +159,11 @@ impl AwgPacketCodec {
             usize::from(config.padding.s3.unwrap_or(0)),
             usize::from(config.padding.s4.unwrap_or(0)),
         ];
-        let header_protection_key = config.headers.header_protection_key;
+        // Upstream treats an all-zero key as the disabled/default value.
+        let header_protection_key = config
+            .headers
+            .header_protection_key
+            .filter(|key| key.iter().any(|byte| *byte != 0));
 
         if header_protection_key.is_some()
             && padding
@@ -390,6 +394,16 @@ mod tests {
             assert_ne!(&encoded[12..16], &packet[..4]);
             assert_eq!(codec.decode(&encoded).unwrap(), packet);
         }
+    }
+
+    #[test]
+    fn all_zero_header_protection_key_disables_the_cipher() {
+        let mut config = AmneziaConfig::default();
+        config.headers.header_protection_key = Some([0; 32]);
+        let codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::HandshakeInitiation);
+        let encoded = codec.encode(&packet, &mut FixedRng(9)).unwrap();
+        assert_eq!(codec.decode(&encoded).unwrap(), packet);
     }
 
     #[test]
