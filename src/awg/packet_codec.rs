@@ -133,7 +133,7 @@ impl std::error::Error for PacketCodecError {}
 /// режима обе стороны должны включить DisableCookies: BoringTun API не
 /// предоставляет cookie secret для пересчёта MAC2. Transport RandomTrailers,
 /// content padding, I1-I5 и junk обрабатываются AwgTunnel wrapper.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AwgPacketCodec {
     padding: [usize; 4],
     header_protection_key: Option<[u8; 32]>,
@@ -142,6 +142,29 @@ pub struct AwgPacketCodec {
     outbound_mac1_key: Option<[u8; 32]>,
     disable_cookies: bool,
     random_trailers: bool,
+}
+
+impl fmt::Debug for AwgPacketCodec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AwgPacketCodec")
+            .field("padding", &self.padding)
+            .field(
+                "header_protection_key",
+                &self.header_protection_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("header_ranges", &self.header_ranges)
+            .field(
+                "inbound_mac1_key",
+                &self.inbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "outbound_mac1_key",
+                &self.outbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("disable_cookies", &self.disable_cookies)
+            .field("random_trailers", &self.random_trailers)
+            .finish()
+    }
 }
 
 impl AwgPacketCodec {
@@ -638,6 +661,18 @@ mod tests {
             assert_ne!(&encoded[12..16], &packet[..4]);
             assert_eq!(codec.decode(&encoded).unwrap(), packet);
         }
+    }
+
+    #[test]
+    fn codec_debug_redacts_header_protection_and_mac1_keys() {
+        let config = base_config(true);
+        let codec = AwgPacketCodec::new_with_keys(&config, &[0xa5; 32], &[0x5a; 32]).unwrap();
+        let rendered = format!("{codec:?}");
+
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(!rendered.contains("55555555"));
+        assert!(!rendered.contains("a5a5a5a5"));
+        assert!(!rendered.contains("5a5a5a5a"));
     }
 
     #[test]
