@@ -448,7 +448,6 @@ mod tests {
     fn cookie_reply_is_decrypted_with_last_mac1_and_peer_static_key() {
         let local_secret = x25519::StaticSecret::from([0x11; 32]);
         let peer_secret = x25519::StaticSecret::from([0x22; 32]);
-        let local_public = x25519::PublicKey::from(&local_secret);
         let peer_public = x25519::PublicKey::from(&peer_secret);
         let config = AmneziaConfig::default();
         let mut tunnel = AwgTunnel::new(
@@ -488,7 +487,6 @@ mod tests {
 
         tunnel.capture_cookie_reply(&packet).unwrap();
         assert!(tunnel.codec.has_write_cookie());
-        assert_eq!(local_public.as_bytes().len(), 32);
     }
 
     #[test]
