@@ -476,24 +476,28 @@ impl AwgPacketCodec {
                 kind,
                 MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
             );
+            let inbound_mac1_key = if handshake {
+                self.inbound_mac1_key.as_ref()
+            } else {
+                None
+            };
+            if let Some(key) = inbound_mac1_key {
+                // Verify even canonical headers before accepting a handshake
+                // candidate. This prevents accidental H1/H2 matches inside a
+                // different message from stealing the packet classification.
+                if !verify_mac1(&candidate, key) {
+                    continue;
+                }
+            } else if handshake && received_header != kind.type_id() {
+                continue;
+            }
+
             if received_header != kind.type_id() {
+                // Only translate MAC2 when the original randomized packet
+                // already proves possession of the issued cookie. Invalid
+                // MAC2 must remain invalid so BoringTun can issue a fresh
+                // Cookie Reply instead of the codec bypassing rate limiting.
                 let valid_mac2_cookie = if handshake {
-                    let key = self
-                        .inbound_mac1_key
-                        .as_ref()
-                        .ok_or(PacketCodecError::MissingMac1Keys)?;
-
-                    // Authenticate the randomized wire header before rewriting
-                    // it. This also prevents false handshake candidates from
-                    // consuming a valid transport datagram.
-                    if !verify_mac1(&candidate, key) {
-                        continue;
-                    }
-
-                    // Only translate MAC2 when the original randomized packet
-                    // already proves possession of the issued cookie. Invalid
-                    // MAC2 must remain invalid so BoringTun can issue a fresh
-                    // Cookie Reply instead of the codec bypassing rate limiting.
                     self.read_cookie
                         .filter(|cookie| verify_mac2(&candidate, cookie))
                 } else {
@@ -501,11 +505,7 @@ impl AwgPacketCodec {
                 };
 
                 candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
-                if handshake {
-                    let key = self
-                        .inbound_mac1_key
-                        .as_ref()
-                        .ok_or(PacketCodecError::MissingMac1Keys)?;
+                if let Some(key) = inbound_mac1_key {
                     if recompute_mac1(&mut candidate, key).is_err() {
                         continue;
                     }
