@@ -198,8 +198,11 @@ impl AwgPacketCodec {
         datagram[padding_len..].copy_from_slice(canonical_packet);
 
         if let Some(key) = self.header_protection_key {
-            let nonce = &datagram[..HEADER_PROTECTION_NONCE_SIZE];
-            Self::apply_header_protection(key, nonce, kind, &mut datagram[padding_len..])?;
+            let nonce: [u8; HEADER_PROTECTION_NONCE_SIZE] = datagram
+                [..HEADER_PROTECTION_NONCE_SIZE]
+                .try_into()
+                .expect("padding length is validated by the codec constructor");
+            Self::apply_header_protection(key, &nonce, kind, &mut datagram[padding_len..])?;
         }
 
         Ok(datagram)
@@ -329,7 +332,7 @@ mod tests {
         packet
     }
 
-    fn config(with_header_protection: bool) -> AmneziaConfig {
+    fn base_config(with_header_protection: bool) -> AmneziaConfig {
         let mut config = AmneziaConfig::default();
         config.padding.s1 = Some(12);
         config.padding.s2 = Some(12);
@@ -343,7 +346,7 @@ mod tests {
 
     #[test]
     fn round_trips_all_four_wireguard_message_types_with_padding() {
-        let mut config = config(false);
+        let mut config = base_config(false);
         config.padding.s1 = Some(4);
         config.padding.s2 = Some(8);
         config.padding.s3 = Some(16);
@@ -372,7 +375,7 @@ mod tests {
 
     #[test]
     fn round_trips_all_message_types_with_chacha20_header_protection() {
-        let codec = AwgPacketCodec::new(&config(true)).unwrap();
+        let codec = AwgPacketCodec::new(&base_config(true)).unwrap();
         for kind in [
             MessageKind::HandshakeInitiation,
             MessageKind::HandshakeResponse,
@@ -389,7 +392,7 @@ mod tests {
 
     #[test]
     fn rejects_header_protection_when_any_padding_is_missing_or_too_small() {
-        let mut config = config(true);
+        let mut config = base_config(true);
         config.padding.s3 = None;
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
@@ -399,7 +402,7 @@ mod tests {
 
     #[test]
     fn rejects_randomized_handshake_headers_until_mac_recalculation_is_available() {
-        let mut config = config(false);
+        let mut config = base_config(false);
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
@@ -411,14 +414,14 @@ mod tests {
 
     #[test]
     fn rejects_unimplemented_awg_features_instead_of_silently_ignoring_them() {
-        let mut config = config(false);
+        let mut config = base_config(false);
         config.junk.count = 2;
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
             Some(PacketCodecError::UnsupportedOption("Jc/Jmin/Jmax"))
         );
 
-        let mut config = config(false);
+        let mut config = base_config(false);
         config.random_trailers = true;
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
@@ -428,7 +431,7 @@ mod tests {
 
     #[test]
     fn rejects_malformed_and_oversized_datagrams() {
-        let codec = AwgPacketCodec::new(&config(false)).unwrap();
+        let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
             codec.decode(&[0, 1, 2]),
             Err(PacketCodecError::InvalidDatagram)
@@ -441,7 +444,7 @@ mod tests {
 
     #[test]
     fn rejects_noncanonical_packets_on_encode() {
-        let codec = AwgPacketCodec::new(&config(false)).unwrap();
+        let codec = AwgPacketCodec::new(&base_config(false)).unwrap();
         assert_eq!(
             codec.encode(&[1, 2, 3, 4], &mut FixedRng(1)),
             Err(PacketCodecError::InvalidCanonicalPacket)
@@ -450,8 +453,8 @@ mod tests {
 
     #[test]
     fn rejects_wrong_header_protection_key() {
-        let sender = AwgPacketCodec::new(&config(true)).unwrap();
-        let mut wrong = config(true);
+        let sender = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut wrong = base_config(true);
         wrong.headers.header_protection_key = Some([0x99; 32]);
         let receiver = AwgPacketCodec::new(&wrong).unwrap();
 
