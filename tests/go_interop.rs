@@ -107,7 +107,12 @@ impl GoPeer {
         let underload_line = lines
             .recv_timeout(Duration::from_secs(5))
             .expect("Go helper did not activate under-load test mode");
-        assert_eq!(underload_line, "UNDERLOAD=1");
+        let expected_ready_line = if mode == "wg-client" {
+            "READY=1"
+        } else {
+            "UNDERLOAD=1"
+        };
+        assert_eq!(underload_line, expected_ready_line);
 
         Self {
             child,
@@ -120,6 +125,16 @@ impl GoPeer {
     fn send_tun_packet(&mut self, packet: &[u8]) {
         writeln!(self.stdin, "SEND:{}", encode_hex(packet)).expect("send packet to Go TUN");
         self.stdin.flush().expect("flush Go helper stdin");
+    }
+
+    fn flood_rust_mac1(&mut self) {
+        self.stdin.write_all(b"FLOOD\\n").expect("request Rust MAC1 flood");
+        self.stdin.flush().expect("flush Rust MAC1 flood command");
+        let line = self
+            .lines
+            .recv_timeout(Duration::from_secs(5))
+            .expect("timed out waiting for MAC1 flood completion");
+        assert_eq!(line, "FLOOD_SENT=10");
     }
 
     fn receive_tun_packet(&self) -> Vec<u8> {
