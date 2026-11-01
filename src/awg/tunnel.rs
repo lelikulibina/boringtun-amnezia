@@ -414,11 +414,168 @@ fn random_below_u64<R: RngCore>(rng: &mut R, upper: u64) -> u64 {
 mod tests {
     use super::*;
 
+    struct FixedRng(u8);
+
+    impl CryptoRng for FixedRng {}
+
+    impl RngCore for FixedRng {
+        fn next_u32(&mut self) -> u32 {
+            u32::from(self.0) * 0x0101_0101
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            u64::from(self.next_u32()) | (u64::from(self.next_u32()) << 32)
+        }
+
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            for byte in dest {
+                *byte = self.0;
+            }
+        }
+
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+            self.fill_bytes(dest);
+            Ok(())
+        }
+    }
+
+    fn tunnel_with_rate_limiter(
+        static_private: x25519::StaticSecret,
+        peer_public: x25519::PublicKey,
+        index: u32,
+        config: &AmneziaConfig,
+        rate_limiter: Option<Arc<RateLimiter>>,
+    ) -> AwgTunnel {
+        let local_public = x25519::PublicKey::from(&static_private);
+        let codec = AwgPacketCodec::new_with_keys(
+            config,
+            local_public.as_bytes(),
+            peer_public.as_bytes(),
+        )
+        .unwrap();
+        let tunn = Tunn::new(
+            static_private,
+            peer_public,
+            None,
+            None,
+            index,
+            rate_limiter,
+        );
+        AwgTunnel {
+            tunn,
+            codec,
+            junk: config.junk,
+            signature_packets: config.signature_packets.clone(),
+            content_padding: config.padding.content_padding,
+            udp_window: DEFAULT_UDP_WINDOW,
+            mtu: DEFAULT_TUN_MTU,
+        }
+    }
+
+    fn last_network_packet(output: AwgTunnelOutput) -> Vec<u8> {
+        match output {
+            AwgTunnelOutput::WriteToNetwork(packet) => packet,
+            AwgTunnelOutput::WriteToNetworkBatch(mut packets) => {
+                packets.pop().expect("handshake batch contains a packet")
+            }
+            other => panic!("ожидался сетевой пакет, получено {other:?}"),
+        }
+    }
+
     #[test]
     fn calculate_padding_size_matches_awg_multiple_of_sixteen_rule() {
         assert_eq!(calculate_padding_size(20, 1_420), 12);
         assert_eq!(calculate_padding_size(32, 1_420), 0);
         assert_eq!(calculate_padding_size(1_430, 1_420), 6);
         assert_eq!(calculate_padding_size(20, 0), 12);
+    }
+
+    #[test]
+    fn randomized_handshake_survives_cookie_challenge_and_mac2_retry() {
+        let mut config = AmneziaConfig::default();
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
+        config.headers.h3 = Some(ValueRange { min: 500, max: 600 });
+        config.headers.h4 = Some(ValueRange { min: 700, max: 800 });
+        config.padding.s1 = Some(12);
+        config.padding.s2 = Some(12);
+        config.padding.s3 = Some(12);
+        config.padding.s4 = Some(12);
+
+        let client_secret = x25519::StaticSecret::from([0x11; 32]);
+        let server_secret = x25519::StaticSecret::from([0x22; 32]);
+        let client_public = x25519::PublicKey::from(&client_secret);
+        let server_public = x25519::PublicKey::from(&server_secret);
+        let limiter = Arc::new(RateLimiter::new(&server_public, 0));
+
+        let mut client = tunnel_with_rate_limiter(
+            client_secret,
+            server_public,
+            1,
+            &config,
+            None,
+        );
+        let mut server = tunnel_with_rate_limiter(
+            server_secret,
+            client_public,
+            2,
+            &config,
+            Some(limiter),
+        );
+
+        let remote = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 23));
+        let mut client_buffer = [0u8; 2048];
+        let mut server_buffer = [0u8; 2048];
+        let mut client_rng = FixedRng(0x31);
+        let mut server_rng = FixedRng(0x42);
+
+        let initial = client.initiate_handshake(
+            &mut client_buffer,
+            true,
+            &mut client_rng,
+        ).unwrap();
+        let initial_packet = last_network_packet(initial);
+        let cookie_reply = server.decapsulate(
+            Some(remote),
+            &initial_packet,
+            &mut server_buffer,
+            &mut server_rng,
+        ).unwrap();
+        let cookie_reply = last_network_packet(cookie_reply);
+        assert_eq!(cookie_reply.len(), 12 + 64);
+
+        assert_eq!(
+            client.decapsulate(
+                Some(remote),
+                &cookie_reply,
+                &mut client_buffer,
+                &mut client_rng,
+            ).unwrap(),
+            AwgTunnelOutput::Done
+        );
+
+        let retry = client.initiate_handshake(
+            &mut client_buffer,
+            true,
+            &mut client_rng,
+        ).unwrap();
+        let retry_packet = last_network_packet(retry);
+        let response = server.decapsulate(
+            Some(remote),
+            &retry_packet,
+            &mut server_buffer,
+            &mut server_rng,
+        ).unwrap();
+        let response_packet = last_network_packet(response);
+
+        // A second Cookie Reply would be 12 + 64 bytes. A 12 + 92 byte
+        // response proves the server accepted the cookie-backed MAC2.
+        assert_eq!(response_packet.len(), 12 + 92);
+        client.decapsulate(
+            Some(remote),
+            &response_packet,
+            &mut client_buffer,
+            &mut client_rng,
+        ).unwrap();
     }
 }
