@@ -1,30 +1,32 @@
 # BoringTun Amnezia
 
-Rust-библиотека для реализации WireGuard и AmneziaWG 3.0/3.1 на основе архитектуры Cloudflare BoringTun.
+Rust-проект для поддержки стандартного WireGuard и AmneziaWG 3.0/3.1.
 
-> **Статус разработки:** начальный каркас. Сейчас библиотека предоставляет только типы конфигурации и их валидацию. Она не реализует криптографический handshake, транспорт WireGuard или обфускацию AmneziaWG и пока не предназначена для создания VPN-туннелей.
+## Текущий статус
 
-## Цели
+- **WireGuard:** подключён Cloudflare BoringTun 0.7.1 через точную версию Cargo dependency. Публичный API доступен через `wireguard::Tunn`; есть integration tests handshake и зашифрованного обмена IPv4-пакетами.
+- **AWG framing:** реализованы H1-H4 ranges, S1-S4 padding и ChaCha20 header protection. Для handshake при изменении H1/H2 пересчитывается MAC1; для transport защищаются только 16 байт заголовка.
+- **AWG tunnel wrapper:** добавлена обёртка BoringTun с двусторонним handshake/transport, I1-I5/Junk preambles и MTU-aware content padding.
+- **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies. Для handshake/cookie trailer добавляется во внешний датаграмм; для transport нулевые байты добавляются в plaintext до AEAD и обрезаются по длине внутреннего IP-пакета.
+- **H1/H2 и MAC2:** исходные MAC1/MAC2 проверяются до канонизации заголовка; при валидном cookie MAC1/MAC2 пересчитываются для BoringTun. Cookie Reply обрабатываются через XChaCha20-Poly1305 и ключи, выведенные из публичных ключей peers. Это устраняет необходимость включать DisableCookies только ради H1/H2 randomization; внешняя проверка under-load с Go ещё требуется.
+- **Стандартное AWG padding:** при выключенных ContentPaddingAddition/RandomTrailers transport plaintext дополняется до кратности 16 с учётом MTU. MTU по умолчанию 1420; его можно изменить через `AwgTunnel::set_mtu`.
+- **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки. HeaderProtectionKey скрывается в Debug и очищается через `zeroize` при уничтожении конфигурации/кодека.
+- **Ограничения:** кастомные таймеры и padding для внутренних keepalive-пакетов BoringTun пока не реализованы.
+- **Таймеры:** `AwgTunnel::update_timers` предоставляет хосту polling BoringTun для rekey, повторных handshake и persistent keepalive; пока используются стандартные интервалы BoringTun, а AWG overrides отклоняются.
+- **Сетевой/TUN стек:** не входит в библиотечную обёртку.
 
-- сохранить побайтовую совместимость классического WireGuard;
-- реализовать отдельные, явно версионированные режимы AmneziaWG 3.0 и 3.1;
-- использовать Cloudflare BoringTun как Rust-основу, а amneziawg-go и wireguard-go — как поведенческие эталоны;
-- проверять совместимость дифференциальными и двусторонними интеграционными тестами.
-
-## Эталонные проекты
-
-- https://github.com/cloudflare/boringtun
-- https://github.com/amnezia-vpn/amneziawg-go
-- https://github.com/WireGuard/wireguard-go
+Полная совместимость с amneziawg-go 3.0/3.1 ещё не заявляется: требуются differential и двусторонние interoperability-тесты, особенно under-load/MAC2 и cookie rotation.
 
 ## Сборка и тесты
 
     cargo fmt --all -- --check
-    cargo test --workspace
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test --workspace --all-features
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-Подробный план и критерии готовности: docs/IMPLEMENTATION_PLAN.md.
+## Upstream
 
-## Безопасность
+- Cloudflare BoringTun: https://github.com/cloudflare/boringtun
+- AmneziaWG Go: https://github.com/amnezia-vpn/amneziawg-go
+- WireGuard Go: https://github.com/WireGuard/wireguard-go
 
-До завершения криптографических и interoperability-тестов не используйте проект для защиты реального трафика. Не отключайте проверки аутентичности и не используйте самодельную криптографию.
+Аудит и план: docs/UPSTREAM.md и docs/IMPLEMENTATION_PLAN.md.
