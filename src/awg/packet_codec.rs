@@ -1,8 +1,8 @@
 //! Базовое внешнее кодирование AWG-пакетов.
 //!
 //! Этот слой добавляет H1-H4 ranges, S1-S4 padding и ChaCha20 header protection
-//! поверх канонических пакетов BoringTun. При random H1/H2 пересчитывается MAC1;
-//! MAC2 under-load сценарии требуют DisableCookies на обеих сторонах.
+//! поверх канонических пакетов BoringTun. При random H1/H2 исходные MAC1/MAC2
+//! проверяются до канонизации, затем корректно пересчитываются для BoringTun.
 
 use crate::{AmneziaConfig, ValueRange};
 use blake2::digest::consts::U16;
@@ -90,6 +90,10 @@ pub enum PacketCodecError {
     MissingMac1Keys,
     /// Не удалось вычислить MAC1 для handshake сообщения.
     Mac1ComputationFailed,
+    /// Не удалось вычислить MAC2 для handshake сообщения.
+    Mac2ComputationFailed,
+    /// Не удалось расшифровать аутентифицированный Cookie Reply.
+    CookieDecryptionFailed,
 }
 
 impl fmt::Display for PacketCodecError {
@@ -212,9 +216,7 @@ impl AwgPacketCodec {
 
     /// Создаёт codec с локальным и удалённым public key для MAC1.
     ///
-    /// H1/H2 randomization разрешается только при DisableCookies=true:
-    /// это исключает необходимость пересчитывать MAC2 с cookie secret,
-    /// который закрыт внутри BoringTun.
+    /// H1/H2 randomization поддерживается с обработкой Cookie Reply и MAC2.
     pub fn new_with_keys(
         config: &AmneziaConfig,
         local_public_key: &[u8; 32],
