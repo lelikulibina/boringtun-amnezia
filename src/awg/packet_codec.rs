@@ -140,7 +140,8 @@ pub struct AwgPacketCodec {
     header_ranges: [ValueRange; 4],
     inbound_mac1_key: Option<[u8; 32]>,
     outbound_mac1_key: Option<[u8; 32]>,
-    disable_cookies: bool,
+    write_cookie: Option<[u8; 16]>,
+    last_outbound_handshake_context: Option<(u32, [u8; 16])>,
     random_trailers: bool,
 }
 
@@ -193,9 +194,7 @@ impl AwgPacketCodec {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
             }
             let canonical = index as u32 + 1;
-            if index < 2 && !range_is_single_value(*range, canonical) && !config.disable_cookies {
-                return Err(PacketCodecError::HeaderRandomizationRequiresDisableCookies);
-            }
+
         }
         for left_index in 0..header_ranges.len() {
             for right_index in (left_index + 1)..header_ranges.len() {
@@ -239,7 +238,8 @@ impl AwgPacketCodec {
             header_ranges,
             inbound_mac1_key,
             outbound_mac1_key,
-            disable_cookies: config.disable_cookies,
+            write_cookie: None,
+            last_outbound_handshake_context: None,
             random_trailers: config.random_trailers,
         })
     }
@@ -249,7 +249,7 @@ impl AwgPacketCodec {
     /// Для handshake/cookie header protection применяется ко всему сообщению;
     /// для transport — только к 16-байтовому транспортному заголовку, как в Go.
     pub fn encode<R: RngCore + CryptoRng>(
-        &self,
+        &mut self,
         canonical_packet: &[u8],
         udp_window: usize,
         rng: &mut R,
@@ -274,13 +274,18 @@ impl AwgPacketCodec {
                     .ok_or(PacketCodecError::MissingMac1Keys)?;
                 recompute_mac1(&mut message, key)?;
             }
-            if self.disable_cookies {
-                let mac2_offset = message
-                    .len()
-                    .checked_sub(16)
-                    .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
-                message[mac2_offset..].fill(0);
+            if let Some(cookie) = self.write_cookie {
+                recompute_mac2(&mut message, &cookie)?;
             }
+            let mac1_offset = message
+                .len()
+                .checked_sub(32)
+                .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+            let sender_index = u32::from_le_bytes(message[4..8].try_into().unwrap());
+            let mac1: [u8; 16] = message[mac1_offset..mac1_offset + 16]
+                .try_into()
+                .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
+            self.last_outbound_handshake_context = Some((sender_index, mac1));
         }
 
         let message_len = message.len();
@@ -395,6 +400,22 @@ impl AwgPacketCodec {
         Err(PacketCodecError::InvalidDatagram)
     }
 
+    /// Устанавливает cookie, полученный из аутентифицированного CookieReply.
+    pub fn set_write_cookie(&mut self, cookie: [u8; 16]) {
+        self.write_cookie = Some(cookie);
+    }
+
+    /// Извлекает контекст последнего исходящего handshake для CookieReply.
+    pub fn take_last_outbound_handshake_context(&mut self) -> Option<(u32, [u8; 16])> {
+        self.last_outbound_handshake_context.take()
+    }
+
+    /// Возвращает true, если H1/H2 имеют больше одного возможного значения.
+    pub fn requires_cookie_bypass(&self) -> bool {
+        !range_is_single_value(self.header_ranges[0], 1)
+            || !range_is_single_value(self.header_ranges[1], 2)
+    }
+
     /// S4 padding, используемый при создании transport datagram.
     pub fn transport_padding(&self) -> usize {
         self.padding[MessageKind::Transport.index()]
@@ -494,6 +515,19 @@ fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecEr
     blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
     let digest = mac.finalize_fixed();
     packet[mac1_offset..mac1_offset + 16].copy_from_slice(&digest);
+    Ok(())
+}
+
+fn recompute_mac2(packet: &mut [u8], cookie: &[u8; 16]) -> Result<(), PacketCodecError> {
+    let mac2_offset = packet
+        .len()
+        .checked_sub(16)
+        .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
+    let mut mac: Blake2sMac<U16> =
+        Blake2sMac::new_from_slice(cookie).map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
+    blake2::digest::Update::update(&mut mac, &packet[..mac2_offset]);
+    let digest = mac.finalize_fixed();
+    packet[mac2_offset..].copy_from_slice(&digest);
     Ok(())
 }
 
@@ -636,12 +670,12 @@ mod tests {
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
-            Some(PacketCodecError::HeaderRandomizationRequiresDisableCookies)
+            Some(PacketCodecError::MissingMac1Keys)
         );
     }
 
     #[test]
-    fn randomized_h1_h2_require_disable_cookies_and_mac1_keys() {
+    fn randomized_h1_h2_require_mac1_keys() {
         let mut config = base_config(false);
         config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
