@@ -124,11 +124,9 @@ impl AwgTunnel {
             local_public.as_bytes(),
             peer_static_public.as_bytes(),
         )?;
-        // H1/H2 randomization requires canonicalization before BoringTun's
-        // rate limiter. Disable local cookie challenges in that case; outgoing
-        // peer cookie replies are still decrypted and MAC2 is recomputed below.
-        let bypass_cookie_challenges =
-            config.disable_cookies || codec.requires_cookie_bypass();
+        // DisableCookies disables only local cookie challenges. With ordinary
+        // H1/H2 randomization the codec instead canonicalizes incoming headers
+        // and recomputes MAC2 from cookies issued by this peer.
         let rate_limiter = if bypass_cookie_challenges {
             Some(Arc::new(RateLimiter::new(&local_public, u64::MAX)))
         } else {
