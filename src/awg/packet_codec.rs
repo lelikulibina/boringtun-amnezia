@@ -1242,6 +1242,7 @@ mod tests {
         );
     }
 
+    // Fixed vectors independently generated with Python hashlib.blake2s.
     #[test]
     fn mac1_and_cookie_key_derivation_match_blake2s_reference_vectors() {
         let public_key = [0x11; 32];
