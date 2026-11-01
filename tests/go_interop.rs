@@ -128,7 +128,9 @@ impl GoPeer {
     }
 
     fn flood_rust_mac1(&mut self) {
-        self.stdin.write_all(b"FLOOD\n").expect("request Rust MAC1 flood");
+        self.stdin
+            .write_all(b"FLOOD\n")
+            .expect("request Rust MAC1 flood");
         self.stdin.flush().expect("flush Rust MAC1 flood command");
         let line = self
             .lines
@@ -305,8 +307,7 @@ fn send_rust_server_network_packet(
     match message_type {
         2 => {
             assert_eq!(
-                *cookie_challenge_received,
-                !disable_cookies,
+                *cookie_challenge_received, !disable_cookies,
                 "Rust server handshake response did not match DisableCookies behavior"
             );
             *handshake_response_sent = true;
@@ -362,7 +363,8 @@ fn run_rust_server_cookie_interop(disable_cookies: bool) {
     for _ in 0..10 {
         let probe = receive_udp(&socket, &mut udp_buffer);
         match tunnel.decapsulate(Some(peer.address.ip()), &probe, &mut buffer, &mut rng) {
-            Ok(AwgTunnelOutput::Done) | Err(boringtun_amnezia::awg::tunnel::AwgTunnelError::WireGuard(_)) => {}
+            Ok(AwgTunnelOutput::Done)
+            | Err(boringtun_amnezia::awg::tunnel::AwgTunnelError::WireGuard(_)) => {}
             Ok(AwgTunnelOutput::WriteToNetwork(_))
             | Ok(AwgTunnelOutput::WriteToNetworkBatch(_)) => {
                 // A probe may itself be the threshold-crossing packet. Its
@@ -418,12 +420,17 @@ fn run_rust_server_cookie_interop(disable_cookies: bool) {
     }
 
     assert_eq!(
-        cookie_challenge_received,
-        !disable_cookies,
+        cookie_challenge_received, !disable_cookies,
         "Rust server Cookie Reply behavior did not match DisableCookies"
     );
-    assert!(handshake_response_sent, "Rust server did not complete Go handshake");
-    assert!(go_packet_received, "Rust server did not receive Go IPv4 transport");
+    assert!(
+        handshake_response_sent,
+        "Rust server did not complete Go handshake"
+    );
+    assert!(
+        go_packet_received,
+        "Rust server did not receive Go IPv4 transport"
+    );
 
     let rust_packet = ipv4_packet(1, 2);
     let encrypted = tunnel
