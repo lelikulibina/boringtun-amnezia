@@ -119,16 +119,14 @@ impl GoPeer {
     }
 
     fn receive_tun_packet(&self) -> Vec<u8> {
-        loop {
-            let line = self
-                .lines
-                .recv_timeout(Duration::from_secs(10))
-                .expect("timed out waiting for packet written to Go TUN");
-            if let Some(packet) = line.strip_prefix("TUN:") {
-                return decode_hex(packet);
-            }
-            panic!("unexpected output from Go helper: {line}");
-        }
+        let line = self
+            .lines
+            .recv_timeout(Duration::from_secs(10))
+            .expect("timed out waiting for packet written to Go TUN");
+        let packet = line
+            .strip_prefix("TUN:")
+            .unwrap_or_else(|| panic!("unexpected output from Go helper: {line}"));
+        decode_hex(packet)
     }
 }
 
@@ -146,7 +144,7 @@ fn decode_hex(value: &str) -> Vec<u8> {
     assert_eq!(value.len() % 2, 0, "hex input has even length");
     value
         .as_bytes()
-        .chunks_exact(2)
+        .chunks(2)
         .map(|pair| {
             let digit = |value: u8| match value {
                 b'0'..=b'9' => value - b'0',
