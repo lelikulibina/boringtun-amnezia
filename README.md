@@ -10,7 +10,7 @@ Rust-проект для поддержки стандартного WireGuard �
 - **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies. Для handshake/cookie trailer добавляется во внешний датаграмм; для transport нулевые байты добавляются в plaintext до AEAD и обрезаются по длине внутреннего IP-пакета.
 - **H1/H2 ограничение:** random ranges для handshake требуют DisableCookies=true на обеих сторонах. Это позволяет пересчитать MAC1, но не требует закрытого cookie secret для MAC2. Полная MAC2/under-load совместимость с cookie challenges ещё не реализована.
 - **Стандартное AWG padding:** при выключенных ContentPaddingAddition/RandomTrailers transport plaintext дополняется до кратности 16 с учётом MTU. MTU по умолчанию 1420; его можно изменить через `AwgTunnel::set_mtu`.
-- **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки.
+- **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки. HeaderProtectionKey скрывается в Debug и очищается через `zeroize` при уничтожении конфигурации/кодека.
 - **Ограничения:** кастомные таймеры и padding для внутренних keepalive-пакетов BoringTun пока не реализованы.
 - **Таймеры:** `AwgTunnel::update_timers` предоставляет хосту polling BoringTun для rekey, повторных handshake и persistent keepalive; пока используются стандартные интервалы BoringTun, а AWG overrides отклоняются.
 - **Сетевой/TUN стек:** не входит в библиотечную обёртку.
