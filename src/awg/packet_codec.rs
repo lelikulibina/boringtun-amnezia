@@ -8,6 +8,8 @@ use crate::{AmneziaConfig, ValueRange};
 use blake2::digest::consts::U16;
 use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
@@ -85,8 +87,10 @@ pub enum PacketCodecError {
     InvalidCipherParameters,
     /// Для рандомизации H1/H2 необходимы ключи MAC1.
     MissingMac1Keys,
-    /// Не удалось вычислить MAC1 для handshake сообщения.
-    Mac1ComputationFailed,
+    /// Не удалось вычислить MAC1/MAC2 для handshake сообщения.
+    MacComputationFailed,
+    /// Не удалось расшифровать cookie reply.
+    CookieDecryptionFailed,
 }
 
 impl fmt::Display for PacketCodecError {
@@ -117,7 +121,8 @@ impl fmt::Display for PacketCodecError {
             Self::HeaderRandomizationRequiresDisableCookies => {
                 f.write_str("рандомизация H1/H2 требует DisableCookies на обоих peers")
             }
-            Self::Mac1ComputationFailed => f.write_str("не удалось пересчитать MAC1"),
+            Self::MacComputationFailed => f.write_str("не удалось пересчитать MAC1/MAC2"),
+            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать cookie reply"),
         }
     }
 }
@@ -138,7 +143,10 @@ pub struct AwgPacketCodec {
     header_ranges: [ValueRange; 4],
     inbound_mac1_key: Option<[u8; 32]>,
     outbound_mac1_key: Option<[u8; 32]>,
+    peer_cookie_key: Option<[u8; 32]>,
     write_cookie: Option<[u8; 16]>,
+    read_cookie: Option<[u8; 16]>,
+    last_inbound_handshake_context: Option<(u32, [u8; 16])>,
     last_outbound_handshake_context: Option<(u32, [u8; 16])>,
     random_trailers: bool,
 }
@@ -149,7 +157,7 @@ impl AwgPacketCodec {
     /// Подходит для стандартных H1/H2 и для рандомизации H3/H4.
     /// Рандомизация H1/H2 требует конструктора new_with_keys.
     pub fn new(config: &AmneziaConfig) -> Result<Self, PacketCodecError> {
-        Self::new_internal(config, None, None)
+        Self::new_internal(config, None, None, None)
     }
 
     /// Создаёт codec с локальным и удалённым public key для MAC1.
@@ -164,13 +172,20 @@ impl AwgPacketCodec {
     ) -> Result<Self, PacketCodecError> {
         let inbound_mac1_key = derive_mac1_key(local_public_key);
         let outbound_mac1_key = derive_mac1_key(peer_public_key);
-        Self::new_internal(config, Some(inbound_mac1_key), Some(outbound_mac1_key))
+        let peer_cookie_key = derive_cookie_key(peer_public_key);
+        Self::new_internal(
+            config,
+            Some(inbound_mac1_key),
+            Some(outbound_mac1_key),
+            Some(peer_cookie_key),
+        )
     }
 
     fn new_internal(
         config: &AmneziaConfig,
         inbound_mac1_key: Option<[u8; 32]>,
         outbound_mac1_key: Option<[u8; 32]>,
+        peer_cookie_key: Option<[u8; 32]>,
     ) -> Result<Self, PacketCodecError> {
         if config.timings.rekey_after_time.is_some()
             || config.timings.rekey_timeout.is_some()
@@ -236,7 +251,10 @@ impl AwgPacketCodec {
             header_ranges,
             inbound_mac1_key,
             outbound_mac1_key,
+            peer_cookie_key,
             write_cookie: None,
+            read_cookie: None,
+            last_inbound_handshake_context: None,
             last_outbound_handshake_context: None,
             random_trailers: config.random_trailers,
         })
@@ -257,6 +275,9 @@ impl AwgPacketCodec {
         let kind = MessageKind::from_packet(&parsed);
         let padding_len = self.padding[kind.index()];
         let mut message = canonical_packet.to_vec();
+        if kind == MessageKind::CookieReply {
+            self.capture_issued_cookie(&message)?;
+        }
         let header_range = self.header_ranges[kind.index()];
         let header_value = pick_header_value(header_range, rng);
         message[..4].copy_from_slice(&header_value.to_le_bytes());
@@ -337,7 +358,7 @@ impl AwgPacketCodec {
     ///
     /// Кандидаты проверяются по S1-S4; тип после снятия защиты должен совпасть
     /// с классом кандидата, после чего выполняется строгий разбор BoringTun.
-    pub fn decode(&self, datagram: &[u8]) -> Result<Vec<u8>, PacketCodecError> {
+    pub fn decode(&mut self, datagram: &[u8]) -> Result<Vec<u8>, PacketCodecError> {
         if datagram.len() > MAX_UDP_PAYLOAD {
             return Err(PacketCodecError::PacketTooLarge);
         }
@@ -415,12 +436,6 @@ impl AwgPacketCodec {
     /// Извлекает контекст последнего исходящего handshake для CookieReply.
     pub fn take_last_outbound_handshake_context(&mut self) -> Option<(u32, [u8; 16])> {
         self.last_outbound_handshake_context.take()
-    }
-
-    /// Возвращает true, если H1/H2 имеют больше одного возможного значения.
-    pub fn requires_cookie_bypass(&self) -> bool {
-        !range_is_single_value(self.header_ranges[0], 1)
-            || !range_is_single_value(self.header_ranges[1], 2)
     }
 
     /// S4 padding, используемый при создании transport datagram.
@@ -512,13 +527,20 @@ fn derive_mac1_key(public_key: &[u8; 32]) -> [u8; 32] {
     hash.finalize().into()
 }
 
+fn derive_cookie_key(public_key: &[u8; 32]) -> [u8; 32] {
+    let mut hash = Blake2s256::new();
+    hash.update(b"cookie--");
+    hash.update(public_key);
+    hash.finalize().into()
+}
+
 fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecError> {
     let mac1_offset = packet
         .len()
         .checked_sub(32)
         .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
     let mut mac: Blake2sMac<U16> =
-        Blake2sMac::new_from_slice(key).map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
+        Blake2sMac::new_from_slice(key).map_err(|_| PacketCodecError::MacComputationFailed)?;
     blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
     let digest = mac.finalize_fixed();
     packet[mac1_offset..mac1_offset + 16].copy_from_slice(&digest);
