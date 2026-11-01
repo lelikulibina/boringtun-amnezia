@@ -90,7 +90,7 @@ fn boringtun_encrypts_and_decrypts_ipv4_transport_packet() {
     match responder.decapsulate(None, &encrypted, &mut decrypted) {
         TunnResult::WriteToTunnelV4(packet, source) => {
             assert_eq!(source, std::net::Ipv4Addr::new(10, 0, 0, 1));
-            assert_eq!(packet, plaintext.as_slice());
+            assert_eq!(&packet[..], plaintext.as_slice());
         }
         other => panic!("ожидался расшифрованный IPv4 пакет, получено: {other:?}"),
     }
