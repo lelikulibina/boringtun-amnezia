@@ -253,7 +253,12 @@ impl EngineConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
     /// Нижняя граница диапазона больше верхней.
-    InvalidRange { min: u32, max: u32 },
+    InvalidRange {
+        /// Запрошенная нижняя граница.
+        min: u32,
+        /// Запрошенная верхняя граница.
+        max: u32,
+    },
     /// Строка диапазона не соответствует формату AWG.
     InvalidRangeSyntax(String),
     /// Диапазоны H1-H4 пересекаются.
@@ -263,7 +268,12 @@ pub enum ConfigError {
     /// Для чистого WireGuard переданы параметры AWG.
     AmneziaOptionsForWireGuard,
     /// Junk packet size range is invalid or exceeds the UDP payload ceiling.
-    InvalidJunkPacketBounds { min: u32, max: u32 },
+    InvalidJunkPacketBounds {
+        /// Минимальный запрошенный размер.
+        min: u32,
+        /// Максимальный запрошенный размер.
+        max: u32,
+    },
     /// Header protection requires all four S1-S4 paddings to be at least 12 bytes.
     HeaderProtectionRequiresAllPaddingAtLeast12,
     /// Параметр доступен только в режиме AmneziaWG 3.1.
