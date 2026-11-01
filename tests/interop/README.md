@@ -19,6 +19,8 @@ CI собирает тестовый peer из закреплённой реви
 
 Этот тест использует настоящий BoringTun RateLimiter и настоящий Go CookieGenerator; MAC1 flood helper создаёт только синтаксически корректные initiation probes с корректным MAC1.
 
+Для cookie rotation helper не подменяет `CookieChecker`: он только выставляет `secretSet` в прошлое относительно `CookieRefreshTime`. Следующий вызов production `CreateReply` сам генерирует новый secret. Тест проверяет отказ старого MAC2 и успешный повтор после второго Cookie Reply; реальное ожидание полного интервала истечения отдельно не выполняется.
+
 ## Детерминированный under-load
 
 Файл `underload_test_hook.go` CI временно копирует в пакет `device` закреплённого Go checkout. Он устанавливает внутренний `underLoadUntil` на 30 секунд. Это **test-only hook**: производственный Go-код не меняется в репозитории и не подменяются CookieChecker, MAC1, MAC2 или криптографические операции.
