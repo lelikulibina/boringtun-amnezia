@@ -37,7 +37,9 @@ pub enum ProtocolMode {
     AmneziaWg31,
 }
 
-/// Диапазон целочисленного параметра AWG. Границы включительные.
+/// Диапазон целочисленного параметра AWG.
+///
+/// Верхняя граница исключительная, кроме фиксированного значения min == max.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ValueRange {
     /// Нижняя включительная граница.
@@ -55,9 +57,15 @@ impl ValueRange {
         Ok(Self { min, max })
     }
 
-    /// Проверяет, входит ли значение в диапазон.
+    /// Проверяет, входит ли значение в полуоткрытый диапазон.
+    ///
+    /// При min == max диапазон представляет единственное фиксированное значение.
     pub fn contains(self, value: u32) -> bool {
-        (self.min..=self.max).contains(&value)
+        if self.min == self.max {
+            value == self.min
+        } else {
+            (self.min..self.max).contains(&value)
+        }
     }
 }
 
