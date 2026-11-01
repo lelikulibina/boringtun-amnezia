@@ -196,10 +196,22 @@ impl fmt::Debug for AwgPacketCodec {
                 "outbound_mac1_key",
                 &self.outbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
             )
-            .field("local_cookie_key", &self.local_cookie_key.as_ref().map(|_| "[REDACTED]"))
-            .field("peer_cookie_key", &self.peer_cookie_key.as_ref().map(|_| "[REDACTED]"))
-            .field("read_cookie", &self.read_cookie.as_ref().map(|_| "[REDACTED]"))
-            .field("write_cookie", &self.write_cookie.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "local_cookie_key",
+                &self.local_cookie_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "peer_cookie_key",
+                &self.peer_cookie_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "read_cookie",
+                &self.read_cookie.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "write_cookie",
+                &self.write_cookie.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("random_trailers", &self.random_trailers)
             .finish()
     }
@@ -734,10 +746,7 @@ fn verify_mac2(packet: &[u8], cookie: &[u8; 16]) -> bool {
     difference == 0
 }
 
-fn recompute_mac2(
-    packet: &mut [u8],
-    cookie: &[u8; 16],
-) -> Result<(), PacketCodecError> {
+fn recompute_mac2(packet: &mut [u8], cookie: &[u8; 16]) -> Result<(), PacketCodecError> {
     let mac2_offset = packet
         .len()
         .checked_sub(16)
@@ -1088,15 +1097,15 @@ mod tests {
     #[test]
     fn cookie_reply_capture_uses_local_key_for_issued_and_peer_key_for_received() {
         let config = base_config(false);
-        let mut codec =
-            AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
         let sender_index = 0x1234_5678;
         let mac1 = [0x5a; 16];
         let cookie = [0x6b; 16];
         let nonce = [0x7c; 24];
 
         codec.last_inbound_handshake_context = Some((sender_index, mac1));
-        let local_cipher = XChaCha20Poly1305::new_from_slice(&codec.local_cookie_key.unwrap()).unwrap();
+        let local_cipher =
+            XChaCha20Poly1305::new_from_slice(&codec.local_cookie_key.unwrap()).unwrap();
         let local_encrypted = local_cipher
             .encrypt(
                 XNonce::from_slice(&nonce),
@@ -1116,9 +1125,9 @@ mod tests {
 
         let random_mac1 = [0x31; 16];
         let canonical_mac1 = [0x42; 16];
-        codec.last_outbound_handshake_context =
-            Some((sender_index, random_mac1, canonical_mac1));
-        let peer_cipher = XChaCha20Poly1305::new_from_slice(&codec.peer_cookie_key.unwrap()).unwrap();
+        codec.last_outbound_handshake_context = Some((sender_index, random_mac1, canonical_mac1));
+        let peer_cipher =
+            XChaCha20Poly1305::new_from_slice(&codec.peer_cookie_key.unwrap()).unwrap();
         let peer_encrypted = peer_cipher
             .encrypt(
                 XNonce::from_slice(&nonce),
@@ -1146,10 +1155,8 @@ mod tests {
         let local_a = [0x11; 32];
         let local_b = [0x22; 32];
         let cookie = [0x6b; 16];
-        let mut sender =
-            AwgPacketCodec::new_with_keys(&config, &local_a, &local_b).unwrap();
-        let mut receiver =
-            AwgPacketCodec::new_with_keys(&config, &local_b, &local_a).unwrap();
+        let mut sender = AwgPacketCodec::new_with_keys(&config, &local_a, &local_b).unwrap();
+        let mut receiver = AwgPacketCodec::new_with_keys(&config, &local_b, &local_a).unwrap();
         sender.write_cookie = Some(cookie);
         receiver.read_cookie = Some(cookie);
 
@@ -1158,7 +1165,9 @@ mod tests {
         recompute_mac1(&mut valid_packet, &derive_mac1_key(&local_b)).unwrap();
         recompute_mac2(&mut valid_packet, &cookie).unwrap();
 
-        let encoded = sender.encode(&valid_packet, 500, &mut FixedRng(0x44)).unwrap();
+        let encoded = sender
+            .encode(&valid_packet, 500, &mut FixedRng(0x44))
+            .unwrap();
         let decoded = receiver.decode(&encoded).unwrap();
         assert_eq!(u32::from_le_bytes(decoded[..4].try_into().unwrap()), 1);
         assert!(verify_mac1(&decoded, &derive_mac1_key(&local_b)));
@@ -1169,8 +1178,9 @@ mod tests {
         let mut invalid_packet = valid_packet;
         let mac2_offset = invalid_packet.len() - 16;
         invalid_packet[mac2_offset..].fill(0x99);
-        let encoded_invalid =
-            sender_without_cookie.encode(&invalid_packet, 500, &mut FixedRng(0x44)).unwrap();
+        let encoded_invalid = sender_without_cookie
+            .encode(&invalid_packet, 500, &mut FixedRng(0x44))
+            .unwrap();
         let decoded_invalid = receiver.decode(&encoded_invalid).unwrap();
         assert!(verify_mac1(&decoded_invalid, &derive_mac1_key(&local_b)));
         assert!(!verify_mac2(&decoded_invalid, &cookie));
