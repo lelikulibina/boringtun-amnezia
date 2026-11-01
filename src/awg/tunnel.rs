@@ -237,6 +237,22 @@ impl AwgTunnel {
         self.map_result(result, rng)
     }
 
+    /// Обновляет внутренние таймеры BoringTun и возвращает действие для UDP/TUN уровня.
+    ///
+    /// Хост должен периодически вызывать этот метод, чтобы работали повторные
+    /// handshake, rekey и persistent keepalive. AWG-специфичные переопределения
+    /// таймеров пока не поддерживаются; используются стандартные интервалы
+    /// закреплённой версии BoringTun.
+    pub fn update_timers<R: RngCore + CryptoRng>(
+        &mut self,
+        dst: &mut [u8],
+        rng: &mut R,
+    ) -> Result<AwgTunnelOutput, AwgTunnelError> {
+        Self::check_destination_buffer(dst.len(), 148)?;
+        let result = self.tunn.update_timers(dst);
+        self.map_result(result, rng)
+    }
+
     /// Возвращает минимальный размер буфера для decapsulate без учёта текущего входящего datagram.
     pub fn required_receive_buffer_size(&self) -> usize {
         self.udp_window.saturating_add(15).max(148)
@@ -321,9 +337,24 @@ impl AwgTunnel {
         match result {
             TunnResult::Done => Ok(AwgTunnelOutput::Done),
             TunnResult::Err(error) => Err(AwgTunnelError::WireGuard(error)),
-            TunnResult::WriteToNetwork(packet) => Ok(AwgTunnelOutput::WriteToNetwork(
-                self.codec.encode(packet, self.udp_window, rng)?,
-            )),
+            TunnResult::WriteToNetwork(packet) => {
+                let is_handshake_initiation = packet
+                    .get(..4)
+                    .and_then(|header| <[u8; 4]>::try_from(header).ok())
+                    .map(u32::from_le_bytes)
+                    == Some(1);
+                let encoded = self.codec.encode(packet, self.udp_window, rng)?;
+
+                if is_handshake_initiation {
+                    let mut batch = self.preamble_packets(rng)?;
+                    if !batch.is_empty() {
+                        batch.push(encoded);
+                        return Ok(AwgTunnelOutput::WriteToNetworkBatch(batch));
+                    }
+                }
+
+                Ok(AwgTunnelOutput::WriteToNetwork(encoded))
+            },
             TunnResult::WriteToTunnelV4(packet, source) => {
                 Ok(AwgTunnelOutput::WriteToTunnelV4(packet.to_vec(), source))
             }
