@@ -197,7 +197,7 @@ fn initiation_sends_signature_packets_then_junk_then_handshake() {
     config.junk = JunkConfig {
         count: 2,
         min_size: 8,
-        max_size: 8,
+        max_size: 9,
     };
     let (mut initiator, _responder) = tunnel_pair(&config);
     let mut rng = FixedRng(0x4d);
