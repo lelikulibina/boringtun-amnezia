@@ -211,6 +211,34 @@ fn default_awg_transport_padding_aligns_plaintext_to_sixteen_bytes() {
 }
 
 #[test]
+fn randomized_h1_h4_with_disable_cookies_preserve_mac1_and_transport() {
+    let mut config = awg_config();
+    config.disable_cookies = true;
+    config.headers.h1 = Some(ValueRange { min: 100, max: 120 });
+    config.headers.h2 = Some(ValueRange { min: 200, max: 220 });
+    config.headers.h3 = Some(ValueRange { min: 300, max: 320 });
+    config.headers.h4 = Some(ValueRange { min: 400, max: 420 });
+
+    let (mut initiator, mut responder) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x6d);
+    let mut buffer = [0u8; 2048];
+    establish_pair(&mut initiator, &mut responder, &mut rng, &mut buffer);
+
+    let packet = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
+    let encrypted = network_packet(
+        initiator
+            .encapsulate(&packet, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    assert_eq!(
+        responder
+            .decapsulate(None, &encrypted, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::WriteToTunnelV4(packet, Ipv4Addr::new(10, 0, 0, 1))
+    );
+}
+
+#[test]
 fn awg_31_content_padding_addition_round_trip() {
     let mut config = awg_config();
     config.disable_cookies = true;
