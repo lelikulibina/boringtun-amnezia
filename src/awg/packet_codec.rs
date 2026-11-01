@@ -1,14 +1,13 @@
 //! Базовое внешнее кодирование AWG-пакетов.
 //!
-//! Этот слой добавляет S1-S4 padding и ChaCha20 header protection поверх
-//! канонических пакетов BoringTun. Чтобы MAC1/MAC2 оставались корректными,
-//! текущая версия принимает только H1-H4, равные стандартным WG type IDs.
-//! Случайные H-диапазоны требуют переноса MAC-генерации внутрь форка BoringTun.
+//! Этот слой добавляет H1-H4 ranges, S1-S4 padding и ChaCha20 header protection
+//! поверх канонических пакетов BoringTun. При random H1/H2 пересчитывается MAC1;
+//! MAC2 under-load сценарии требуют DisableCookies на обеих сторонах.
 
 use crate::{AmneziaConfig, ValueRange};
-use boringtun::noise::{Packet, Tunn};
 use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
+use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use rand_core::{CryptoRng, RngCore};
@@ -165,11 +164,7 @@ impl AwgPacketCodec {
     ) -> Result<Self, PacketCodecError> {
         let inbound_mac1_key = derive_mac1_key(local_public_key);
         let outbound_mac1_key = derive_mac1_key(peer_public_key);
-        Self::new_internal(
-            config,
-            Some(inbound_mac1_key),
-            Some(outbound_mac1_key),
-        )
+        Self::new_internal(config, Some(inbound_mac1_key), Some(outbound_mac1_key))
     }
 
     fn new_internal(
@@ -197,17 +192,16 @@ impl AwgPacketCodec {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
             }
             let canonical = index as u32 + 1;
-            if index < 2
-                && !range_is_single_value(*range, canonical)
-                && !config.disable_cookies
-            {
+            if index < 2 && !range_is_single_value(*range, canonical) && !config.disable_cookies {
                 return Err(PacketCodecError::HeaderRandomizationRequiresDisableCookies);
             }
         }
         for left_index in 0..header_ranges.len() {
             for right_index in (left_index + 1)..header_ranges.len() {
                 if ranges_overlap(header_ranges[left_index], header_ranges[right_index]) {
-                    return Err(PacketCodecError::UnsupportedOption("пересекающиеся H1-H4 ranges"));
+                    return Err(PacketCodecError::UnsupportedOption(
+                        "пересекающиеся H1-H4 ranges",
+                    ));
                 }
             }
         }
@@ -361,20 +355,12 @@ impl AwgPacketCodec {
             let header_range = self.header_ranges[kind.index()];
             if let Some(key) = self.header_protection_key {
                 let nonce = &datagram[..HEADER_PROTECTION_NONCE_SIZE];
-                if Self::unprotect_candidate(
-                    key,
-                    nonce,
-                    kind,
-                    header_range,
-                    &mut candidate,
-                )
-                .is_err()
+                if Self::unprotect_candidate(key, nonce, kind, header_range, &mut candidate)
+                    .is_err()
                 {
                     continue;
                 }
-            } else if !header_range.contains(u32::from_le_bytes(
-                candidate[..4].try_into().unwrap(),
-            )) {
+            } else if !header_range.contains(u32::from_le_bytes(candidate[..4].try_into().unwrap())) {
                 continue;
             }
 
@@ -501,8 +487,8 @@ fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecEr
         .len()
         .checked_sub(32)
         .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
-    let mut mac = Blake2sMac::new_from_slice(key)
-        .map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
+    let mut mac =
+        Blake2sMac::new_from_slice(key).map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
     blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
     let digest = mac.finalize_fixed();
     packet[mac1_offset..mac1_offset + 16].copy_from_slice(&digest);
