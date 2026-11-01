@@ -408,7 +408,10 @@ fn run_wireguard_interop() {
             other => panic!("unexpected WireGuard handshake response type: {other}"),
         }
     }
-    assert!(established, "WireGuard handshake did not complete after MAC2 retry");
+    assert!(
+        established,
+        "WireGuard handshake did not complete after MAC2 retry"
+    );
 
     let rust_packet = ipv4_packet(1, 2);
     let encrypted = match tunnel.encapsulate(&rust_packet, &mut buffer) {
@@ -440,16 +443,8 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn(go_mode, &go_secret_bytes, rust_public.as_bytes(), local);
     let config = awg_config(is_31);
-    let mut tunnel = AwgTunnel::new(
-        mode,
-        rust_secret,
-        go_public.clone(),
-        None,
-        None,
-        1,
-        &config,
-    )
-    .expect("create Rust AWG tunnel");
+    let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public.clone(), None, None, 1, &config)
+        .expect("create Rust AWG tunnel");
 
     let probes = build_awg_underload_probes(mode, &rust_secret_bytes, &go_public, &config);
     force_go_under_load(&mut peer, &probes);
@@ -482,7 +477,10 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
             }
         }
     }
-    assert!(established, "AWG handshake did not complete after MAC2 retry");
+    assert!(
+        established,
+        "AWG handshake did not complete after MAC2 retry"
+    );
 
     let rust_packet = ipv4_packet(1, 2);
     let encrypted = tunnel
