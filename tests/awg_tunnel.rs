@@ -123,6 +123,34 @@ fn establish_pair(
 }
 
 #[test]
+fn undersized_destination_buffers_return_errors_instead_of_panicking() {
+    let config = awg_config();
+    let (mut tunnel, _peer) = tunnel_pair(&config);
+    let mut rng = FixedRng(0x19);
+    let mut small = [0u8; 64];
+
+    assert!(matches!(
+        tunnel.initiate_handshake(&mut small, false, &mut rng),
+        Err(boringtun_amnezia::awg::tunnel::AwgTunnelError::Codec(
+            boringtun_amnezia::awg::packet_codec::PacketCodecError::DestinationBufferTooSmall {
+                required: 148,
+                actual: 64
+            }
+        ))
+    ));
+
+    assert!(matches!(
+        tunnel.decapsulate(None, &[], &mut small, &mut rng),
+        Err(boringtun_amnezia::awg::tunnel::AwgTunnelError::Codec(
+            boringtun_amnezia::awg::packet_codec::PacketCodecError::DestinationBufferTooSmall {
+                actual: 64,
+                ..
+            }
+        ))
+    ));
+}
+
+#[test]
 fn awg_framed_handshake_and_transport_work_in_both_directions() {
     let config = awg_config();
     let (mut initiator, mut responder) = tunnel_pair(&config);
