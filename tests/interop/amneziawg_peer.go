@@ -168,6 +168,14 @@ func main() {
 		if line == "QUIT" {
 			return
 		}
+		if line == "LOAD?" {
+			if dev.IsUnderLoad() {
+				fmt.Println("UNDERLOAD=1")
+			} else {
+				fmt.Println("UNDERLOAD=0")
+			}
+			continue
+		}
 		if strings.HasPrefix(line, "SEND:") {
 			packet, err := hex.DecodeString(strings.TrimPrefix(line, "SEND:"))
 			if err != nil {
