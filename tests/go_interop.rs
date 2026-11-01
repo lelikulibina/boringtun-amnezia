@@ -385,6 +385,7 @@ fn run_wireguard_interop() {
     };
     let mut udp_buffer = [0u8; 2048];
     let mut established = false;
+    let mut cookie_challenge_received = false;
 
     for _ in 0..3 {
         socket.send_to(&initiation, peer.address).unwrap();
@@ -394,6 +395,7 @@ fn run_wireguard_interop() {
 
         match message_type {
             3 => {
+                cookie_challenge_received = true;
                 assert!(matches!(result, TunnResult::Done));
                 initiation = match tunnel.format_handshake_initiation(&mut buffer, true) {
                     TunnResult::WriteToNetwork(packet) => packet.to_vec(),
@@ -401,6 +403,7 @@ fn run_wireguard_interop() {
                 };
             }
             2 => {
+                assert!(cookie_challenge_received, "Go peer skipped the expected MAC2 cookie challenge");
                 send_wireguard_output(&socket, peer.address, result);
                 established = true;
                 break;
@@ -408,6 +411,7 @@ fn run_wireguard_interop() {
             other => panic!("unexpected WireGuard handshake response type: {other}"),
         }
     }
+    assert!(cookie_challenge_received, "Go peer did not issue a MAC2 cookie challenge");
     assert!(
         established,
         "WireGuard handshake did not complete after MAC2 retry"
@@ -456,6 +460,7 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
         .expect("format Rust AWG initiation");
     let mut udp_buffer = [0u8; 2048];
     let mut established = false;
+    let mut cookie_challenge_received = false;
 
     for _ in 0..3 {
         send_awg_output(&socket, peer.address, initiation);
@@ -466,17 +471,20 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
 
         match output {
             AwgTunnelOutput::Done => {
+                cookie_challenge_received = true;
                 initiation = tunnel
                     .initiate_handshake(&mut buffer, true, &mut rng)
                     .expect("format AWG MAC2 cookie retry");
             }
             other => {
+                assert!(cookie_challenge_received, "Go AWG peer skipped the expected MAC2 cookie challenge");
                 send_awg_output(&socket, peer.address, other);
                 established = true;
                 break;
             }
         }
     }
+    assert!(cookie_challenge_received, "Go AWG peer did not issue a MAC2 cookie challenge");
     assert!(
         established,
         "AWG handshake did not complete after MAC2 retry"
