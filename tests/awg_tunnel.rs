@@ -109,10 +109,7 @@ fn awg_framed_handshake_and_transport_work_in_both_directions() {
         responder
             .decapsulate(None, &encrypted, &mut buffer, &mut rng)
             .unwrap(),
-        AwgTunnelOutput::WriteToTunnelV4(
-            a_to_b,
-            Ipv4Addr::new(10, 0, 0, 1)
-        )
+        AwgTunnelOutput::WriteToTunnelV4(a_to_b, Ipv4Addr::new(10, 0, 0, 1))
     );
 
     let b_to_a = ipv4_packet([10, 0, 0, 2], [10, 0, 0, 1]);
@@ -125,9 +122,6 @@ fn awg_framed_handshake_and_transport_work_in_both_directions() {
         initiator
             .decapsulate(None, &encrypted, &mut buffer, &mut rng)
             .unwrap(),
-        AwgTunnelOutput::WriteToTunnelV4(
-            b_to_a,
-            Ipv4Addr::new(10, 0, 0, 2)
-        )
+        AwgTunnelOutput::WriteToTunnelV4(b_to_a, Ipv4Addr::new(10, 0, 0, 2))
     );
 }
