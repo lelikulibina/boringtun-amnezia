@@ -7,9 +7,11 @@ use crate::{
     ValueRange,
 };
 use boringtun::noise::errors::WireGuardError;
+use boringtun::noise::rate_limiter::RateLimiter;
 use rand_core::{CryptoRng, RngCore};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_UDP_WINDOW: usize = 500;
@@ -110,13 +112,21 @@ impl AwgTunnel {
         .validate()?;
 
         let codec = AwgPacketCodec::new(config)?;
+        let local_public = x25519::PublicKey::from(&static_private);
+        // An effectively unbounded limit preserves MAC1 validation while
+        // disabling cookie challenges, matching AWG DisableCookies behavior.
+        let rate_limiter = if config.disable_cookies {
+            Some(Arc::new(RateLimiter::new(&local_public, u64::MAX)))
+        } else {
+            None
+        };
         let tunn = Tunn::new(
             static_private,
             peer_static_public,
             preshared_key,
             persistent_keepalive,
             index,
-            None,
+            rate_limiter,
         );
         Ok(Self {
             tunn,
@@ -171,7 +181,11 @@ impl AwgTunnel {
         // without exceeding that learned window.
         self.udp_window = self.udp_window.max(base_size);
         let available = self.udp_window.saturating_sub(base_size);
-        let extra_padding = self.transport_padding_addition(available, rng);
+        let extra_padding = if inner_packet.is_empty() {
+            0
+        } else {
+            self.transport_padding_addition(available, rng)
+        };
 
         let mut plaintext = inner_packet.to_vec();
         plaintext.resize(plaintext.len() + extra_padding, 0);
@@ -198,6 +212,11 @@ impl AwgTunnel {
             self.tunn.decapsulate(src_addr, &canonical, dst)
         };
         self.map_result(result, rng)
+    }
+
+    /// Сбрасывает обученное UDP окно после смены endpoint.
+    pub fn reset_udp_window(&mut self) {
+        self.udp_window = DEFAULT_UDP_WINDOW;
     }
 
     fn transport_padding_addition<R: RngCore + CryptoRng>(
