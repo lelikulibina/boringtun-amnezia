@@ -3,6 +3,7 @@
 | Возможность | WireGuard | AmneziaWG 3.0 | AmneziaWG 3.1 |
 |---|---:|---:|---:|
 | Базовый WireGuard handshake и transport через BoringTun | Подключено | Основа | Основа |
+| AWG tunnel wrapper | Не нужен | Подключён для базового профиля | Подключён для базового профиля |
 | H1-H4 | Стандартные type IDs | Только стандартные type IDs; случайные диапазоны отклоняются | То же |
 | S1-S4 | Нет | Packet codec реализован | Packet codec реализован |
 | Header protection | Нет | ChaCha20 codec реализован | ChaCha20 codec реализован |
@@ -13,6 +14,6 @@
 | Рандомизируемые таймеры | Стандартные WG | Только тип конфигурации | Только тип конфигурации |
 | RandomTrailers | Нет | Не поддерживается | Отклоняется как неподдерживаемая опция |
 | DisableCookies | Нет | Не поддерживается | Отклоняется как неподдерживаемая опция |
-| Полный AWG handshake/receive interoperability | Нет | Не подтверждено | Не подтверждено |
+| Полный AWG interoperability с amneziawg-go | Нет | Не подтверждено | Не подтверждено |
 
-**Граница реализации:** packet codec пока поддерживает S1-S4 и header protection при стандартных H1-H4. Произвольная рандомизация handshake type IDs требует переноса MAC1/MAC2 генерации внутрь форка BoringTun; она намеренно запрещена текущим API.
+**Граница реализации:** wrapper поддерживает S1-S4 и header protection при стандартных H type IDs. Произвольная рандомизация handshake type IDs требует пересчёта MAC1/MAC2 внутри форка BoringTun; она намеренно запрещена текущим API.
