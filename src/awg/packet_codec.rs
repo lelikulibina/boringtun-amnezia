@@ -7,7 +7,7 @@
 
 use crate::{AmneziaConfig, ValueRange};
 use boringtun::noise::{Packet, Tunn};
-use blake2::digest::{FixedOutput, KeyInit, Update};
+use blake2::digest::{FixedOutput, KeyInit};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
@@ -197,10 +197,18 @@ impl AwgPacketCodec {
                 return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
             }
             let canonical = index as u32 + 1;
-            if (index < 2 && !range_is_single_value(*range, canonical))
+            if index < 2
+                && !range_is_single_value(*range, canonical)
                 && !config.disable_cookies
             {
                 return Err(PacketCodecError::HeaderRandomizationRequiresDisableCookies);
+            }
+        }
+        for left_index in 0..header_ranges.len() {
+            for right_index in (left_index + 1)..header_ranges.len() {
+                if ranges_overlap(header_ranges[left_index], header_ranges[right_index]) {
+                    return Err(PacketCodecError::UnsupportedOption("пересекающиеся H1-H4 ranges"));
+                }
             }
         }
 
@@ -453,6 +461,22 @@ impl AwgPacketCodec {
     }
 }
 
+fn ranges_overlap(left: ValueRange, right: ValueRange) -> bool {
+    let left_start = u64::from(left.min);
+    let left_end = if left.min == left.max {
+        left_start + 1
+    } else {
+        u64::from(left.max)
+    };
+    let right_start = u64::from(right.min);
+    let right_end = if right.min == right.max {
+        right_start + 1
+    } else {
+        u64::from(right.max)
+    };
+    left_start < right_end && right_start < left_end
+}
+
 fn range_is_single_value(range: ValueRange, expected: u32) -> bool {
     range.min == expected && (range.max == expected || range.max == expected + 1)
 }
@@ -479,7 +503,7 @@ fn recompute_mac1(packet: &mut [u8], key: &[u8; 32]) -> Result<(), PacketCodecEr
         .ok_or(PacketCodecError::InvalidCanonicalPacket)?;
     let mut mac = Blake2sMac::new_from_slice(key)
         .map_err(|_| PacketCodecError::Mac1ComputationFailed)?;
-    mac.update(&packet[..mac1_offset]);
+    blake2::digest::Update::update(&mut mac, &packet[..mac1_offset]);
     let digest = mac.finalize_fixed();
     packet[mac1_offset..mac1_offset + 16].copy_from_slice(&digest);
     Ok(())
