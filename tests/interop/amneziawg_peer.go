@@ -138,6 +138,7 @@ func main() {
 		os.Exit(1)
 	}
 	tunDevice.events <- tun.EventUp
+	device.ForceUnderLoadForInterop(dev)
 
 	state, err := dev.IpcGet()
 	if err != nil {
@@ -167,14 +168,6 @@ func main() {
 		line := scanner.Text()
 		if line == "QUIT" {
 			return
-		}
-		if line == "LOAD?" {
-			if dev.IsUnderLoad() {
-				fmt.Println("UNDERLOAD=1")
-			} else {
-				fmt.Println("UNDERLOAD=0")
-			}
-			continue
 		}
 		if strings.HasPrefix(line, "SEND:") {
 			packet, err := hex.DecodeString(strings.TrimPrefix(line, "SEND:"))
