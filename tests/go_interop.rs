@@ -479,6 +479,8 @@ fn run_wireguard_interop() {
     let mut cookie_challenge_received = false;
     let mut cookie_challenge_count = 0usize;
     let mut cookie_rotation_triggered = false;
+    let mut cookie_challenge_count = 0usize;
+    let mut cookie_rotation_triggered = false;
 
     for _ in 0..3 {
         socket.send_to(&initiation, peer.address).unwrap();
