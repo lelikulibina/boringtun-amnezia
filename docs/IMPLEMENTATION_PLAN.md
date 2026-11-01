@@ -39,7 +39,7 @@
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
 - [x] Внутренний MAC2 cookie flow: расшифровка Cookie Reply, сохранение cookies, проверка исходного MAC2 и безопасный пересчёт после канонизации.
 - [x] End-to-end RateLimiter under-load test: Cookie Reply → client cookie → randomized retry → успешный handshake.
-- [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation.
+- [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation (внутренний Rust↔Rust under-load тест уже есть, но он не доказывает совместимость с Go).
 - [x] Экспортировать `update_timers` и проводить результаты timer polling через AWG framing, включая I1-I5/junk при повторном handshake.
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Кастомные таймеры.
@@ -52,8 +52,9 @@
 - [ ] Совместимость с cookie/under-load и edge-case сценариями.
 
 ### Этап E — интеграция и hardening
-- [ ] Fuzzing парсеров и malformed packets.
-- [ ] Property-based tests, benchmarks и regression suite.
+- [x] Детерминированный no-panic regression test декодера на коротких и случайных датаграммах; отдельные проверки malformed и oversized packets.
+- [ ] Полноценный coverage-guided fuzzing парсеров (cargo-fuzz/libFuzzer).
+- [ ] Property-based tests, benchmarks и расширенная regression suite.
 - [x] CI feature matrix для no-default, WireGuard, AWG 3.0 и AWG 3.1.
 - [x] CI на Linux/macOS/Windows.
 - [ ] Документация API, конфигурации и угроз.
