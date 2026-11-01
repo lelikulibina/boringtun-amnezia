@@ -648,7 +648,13 @@ fn interoperates_with_pinned_wireguard_and_amneziawg_go_in_both_directions() {
     run_wireguard_interop();
     run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false, false);
     run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false, false);
-    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31-nocookies", true, true, false);
+    run_awg_interop(
+        ProtocolMode::AmneziaWg31,
+        "awg31-nocookies",
+        true,
+        true,
+        false,
+    );
     run_awg_interop(
         ProtocolMode::AmneziaWg31,
         "awg31-rotate-cookie",
