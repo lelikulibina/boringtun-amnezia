@@ -1,3 +1,5 @@
+#![cfg(feature = "wireguard")]
+
 use boringtun_amnezia::wireguard::{x25519, Tunn, TunnResult};
 
 fn tunnel_pair() -> (Tunn, Tunn) {
