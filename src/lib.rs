@@ -211,7 +211,13 @@ impl EngineConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         match (self.mode, self.amnezia.as_ref()) {
             (ProtocolMode::WireGuard, Some(_)) => Err(ConfigError::AmneziaOptionsForWireGuard),
-            (ProtocolMode::WireGuard, None) => Ok(()),
+            (ProtocolMode::WireGuard, None) => {
+                if cfg!(feature = "wireguard") {
+                    Ok(())
+                } else {
+                    Err(ConfigError::FeatureNotEnabled("wireguard"))
+                }
+            },
             (ProtocolMode::AmneziaWg30 | ProtocolMode::AmneziaWg31, None) => {
                 Err(ConfigError::MissingAmneziaOptions)
             }
@@ -307,7 +313,16 @@ impl EngineConfig {
                 {
                     return Err(ConfigError::FeatureRequiresAmneziaWg31);
                 }
-                Ok(())
+
+                match self.mode {
+                    ProtocolMode::AmneziaWg30 if !cfg!(feature = "amneziawg-3-0") => {
+                        Err(ConfigError::FeatureNotEnabled("amneziawg-3-0"))
+                    }
+                    ProtocolMode::AmneziaWg31 if !cfg!(feature = "amneziawg-3-1") => {
+                        Err(ConfigError::FeatureNotEnabled("amneziawg-3-1"))
+                    }
+                    _ => Ok(()),
+                }
             }
         }
     }
@@ -349,6 +364,8 @@ pub enum ConfigError {
     HeaderProtectionRequiresAllPaddingAtLeast12,
     /// Параметр доступен только в режиме AmneziaWG 3.1.
     FeatureRequiresAmneziaWg31,
+    /// Запрошенный протокольный режим отключён при сборке crate.
+    FeatureNotEnabled(&'static str),
 }
 
 impl core::fmt::Display for ConfigError {
@@ -379,6 +396,9 @@ impl core::fmt::Display for ConfigError {
             }
             Self::FeatureRequiresAmneziaWg31 => {
                 f.write_str("random_trailers и disable_cookies доступны только в AmneziaWG 3.1")
+            }
+            Self::FeatureNotEnabled(feature) => {
+                write!(f, "сборка не включает поддержку {feature}")
             }
         }
     }
@@ -449,6 +469,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn header_protection_requires_all_four_paddings() {
         for missing_index in 0..4 {
@@ -474,6 +495,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn header_protection_rejects_each_padding_below_twelve() {
         for index in 0..4 {
@@ -499,6 +521,45 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "wireguard"))]
+    #[test]
+    fn wireguard_mode_is_rejected_when_feature_is_disabled() {
+        let config = EngineConfig {
+            mode: ProtocolMode::WireGuard,
+            amnezia: None,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::FeatureNotEnabled("wireguard"))
+        );
+    }
+
+    #[cfg(not(feature = "amneziawg-3-0"))]
+    #[test]
+    fn awg_30_mode_is_rejected_when_feature_is_disabled() {
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(AmneziaConfig::default()),
+        };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::FeatureNotEnabled("amneziawg-3-0"))
+        );
+    }
+
+    #[cfg(not(feature = "amneziawg-3-1"))]
+    #[test]
+    fn awg_31_mode_is_rejected_when_feature_is_disabled() {
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg31,
+            amnezia: Some(AmneziaConfig::default()),
+        };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::FeatureNotEnabled("amneziawg-3-1"))
+        );
+    }
+
     #[test]
     fn header_protection_key_is_redacted_from_configuration_debug() {
         let mut config = AmneziaConfig::default();
@@ -509,6 +570,7 @@ mod tests {
         assert!(!rendered.contains("abababab"));
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn all_zero_header_protection_key_is_treated_as_disabled() {
         let mut awg = AmneziaConfig::default();
@@ -520,6 +582,7 @@ mod tests {
         assert_eq!(config.validate(), Ok(()));
     }
 
+    #[cfg(feature = "amneziawg-3-1")]
     #[test]
     fn header_protection_accepts_all_four_paddings_of_twelve() {
         let mut awg = AmneziaConfig::default();
@@ -538,6 +601,7 @@ mod tests {
         assert_eq!(config.validate(), Ok(()));
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn awg_31_flags_are_rejected_in_awg_30() {
         for (random_trailers, disable_cookies) in [(true, false), (false, true), (true, true)] {
@@ -557,6 +621,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "amneziawg-3-1")]
     #[test]
     fn awg_31_flags_are_accepted_in_awg_31() {
         let awg = AmneziaConfig {
@@ -571,6 +636,7 @@ mod tests {
         assert_eq!(config.validate(), Ok(()));
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn overlapping_header_ranges_are_rejected() {
         let mut awg = AmneziaConfig::default();
@@ -583,6 +649,7 @@ mod tests {
         assert_eq!(config.validate(), Err(ConfigError::OverlappingHeaderRanges));
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn header_ranges_cannot_overlap_implicit_standard_type_ids() {
         let mut awg = AmneziaConfig::default();
@@ -594,6 +661,7 @@ mod tests {
         assert_eq!(config.validate(), Err(ConfigError::OverlappingHeaderRanges));
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn adjacent_header_ranges_are_accepted() {
         let mut awg = AmneziaConfig::default();
@@ -608,6 +676,7 @@ mod tests {
         assert_eq!(config.validate(), Ok(()));
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn junk_packet_count_is_bounded() {
         let awg = AmneziaConfig {
@@ -628,6 +697,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn junk_packet_bounds_are_validated() {
         let awg = AmneziaConfig {
@@ -648,6 +718,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "amneziawg-3-0")]
     #[test]
     fn awg_accepts_empty_optional_obfuscation_settings() {
         let config = EngineConfig {
