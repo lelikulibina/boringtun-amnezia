@@ -217,7 +217,7 @@ impl EngineConfig {
                 } else {
                     Err(ConfigError::FeatureNotEnabled("wireguard"))
                 }
-            },
+            }
             (ProtocolMode::AmneziaWg30 | ProtocolMode::AmneziaWg31, None) => {
                 Err(ConfigError::MissingAmneziaOptions)
             }
