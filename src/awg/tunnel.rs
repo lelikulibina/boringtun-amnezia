@@ -4,7 +4,7 @@ use super::packet_codec::{AwgPacketCodec, PacketCodecError};
 use crate::wireguard::{x25519, Tunn, TunnResult};
 use crate::AmneziaConfig;
 use boringtun::noise::errors::WireGuardError;
-use rand_core::RngCore;
+use rand_core::{CryptoRng, RngCore};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -80,7 +80,7 @@ impl AwgTunnel {
     }
 
     /// Формирует и кодирует handshake initiation.
-    pub fn initiate_handshake<R: RngCore>(
+    pub fn initiate_handshake<R: RngCore + CryptoRng>(
         &mut self,
         dst: &mut [u8],
         force_resend: bool,
