@@ -17,5 +17,6 @@ amneziawg-3-0 = ["amneziawg"]
 amneziawg-3-1 = ["amneziawg"]
 
 [dependencies]
+rand_core = { version = "0.6.4", features = ["getrandom"] }
 # Use the published, versioned upstream library rather than unstable master.
 boringtun = { version = "=0.7.1", default-features = false }
