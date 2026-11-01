@@ -439,7 +439,7 @@ impl AwgPacketCodec {
     ///
     /// Кандидаты проверяются по S1-S4; тип после снятия защиты должен совпасть
     /// с классом кандидата, после чего выполняется строгий разбор BoringTun.
-    pub fn decode(&self, datagram: &[u8]) -> Result<Vec<u8>, PacketCodecError> {
+    pub fn decode(&mut self, datagram: &[u8]) -> Result<Vec<u8>, PacketCodecError> {
         if datagram.len() > MAX_UDP_PAYLOAD {
             return Err(PacketCodecError::PacketTooLarge);
         }
@@ -477,37 +477,47 @@ impl AwgPacketCodec {
             }
 
             let received_header = u32::from_le_bytes(candidate[..4].try_into().unwrap());
+            let handshake = matches!(
+                kind,
+                MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
+            );
             if received_header != kind.type_id() {
-                let handshake = matches!(
-                    kind,
-                    MessageKind::HandshakeInitiation | MessageKind::HandshakeResponse
-                );
-                let mac1_key = if handshake {
+                let valid_mac2_cookie = if handshake {
                     let key = self
                         .inbound_mac1_key
                         .as_ref()
                         .ok_or(PacketCodecError::MissingMac1Keys)?;
 
-                    // A random header candidate can overlap bytes from another
-                    // message kind (notably with RandomTrailers enabled). Verify
-                    // the sender's MAC1 before canonicalizing the type field;
-                    // otherwise arbitrary bytes could be rewritten into a
-                    // syntactically valid handshake candidate.
+                    // Authenticate the randomized wire header before rewriting
+                    // it. This also prevents false handshake candidates from
+                    // consuming a valid transport datagram.
                     if !verify_mac1(&candidate, key) {
                         continue;
                     }
-                    Some(key)
+
+                    // Only translate MAC2 when the original randomized packet
+                    // already proves possession of the issued cookie. Invalid
+                    // MAC2 must remain invalid so BoringTun can issue a fresh
+                    // Cookie Reply instead of the codec bypassing rate limiting.
+                    self.read_cookie
+                        .filter(|cookie| verify_mac2(&candidate, cookie))
                 } else {
                     None
                 };
 
-                // MAC1 authenticates the randomized wire header. After it has
-                // been verified, restore the canonical type and recompute MAC1
-                // for BoringTun's unmodified WireGuard parser.
                 candidate[..4].copy_from_slice(&kind.type_id().to_le_bytes());
-                if let Some(key) = mac1_key {
+                if handshake {
+                    let key = self
+                        .inbound_mac1_key
+                        .as_ref()
+                        .ok_or(PacketCodecError::MissingMac1Keys)?;
                     if recompute_mac1(&mut candidate, key).is_err() {
                         continue;
+                    }
+                    if let Some(cookie) = valid_mac2_cookie {
+                        if recompute_mac2(&mut candidate, &cookie).is_err() {
+                            continue;
+                        }
                     }
                 }
             }
@@ -517,6 +527,17 @@ impl AwgPacketCodec {
                 Err(_) => continue,
             };
             if MessageKind::from_packet(&parsed) == kind {
+                if handshake {
+                    let mac1_offset = candidate.len() - 32;
+                    let sender_index = u32::from_le_bytes(candidate[4..8].try_into().unwrap());
+                    let mac1 = candidate[mac1_offset..mac1_offset + 16]
+                        .try_into()
+                        .map_err(|_| PacketCodecError::InvalidCanonicalPacket)?;
+                    self.last_inbound_handshake_context = Some((sender_index, mac1));
+                }
+                if kind == MessageKind::CookieReply {
+                    self.capture_cookie_reply(&candidate)?;
+                }
                 return Ok(candidate);
             }
         }
