@@ -32,11 +32,13 @@
 - [x] ChaCha20 header protection: handshake/cookie целиком, transport header (16 байт) отдельно.
 - [x] H1-H4 ranges и header randomization.
 - [x] Пересчёт MAC1 при random H1/H2 с BLAKE2s.
+- [x] Расшифровка CookieReply и пересчёт MAC2 по полученному cookie.
+- [x] Локальный rate limiter отключает cookie challenge при random H1/H2, сохраняя MAC1 validation.
 - [x] I1-I5 pre-handshake datagrams и junk-пакеты в правильном порядке.
 - [x] ContentPaddingAddition и RandomTrailers для handshake/cookie/обычного transport encapsulate.
 - [x] Стандартное дополнение transport plaintext до кратности 16 с учётом MTU.
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
-- [ ] MAC2 cookie challenge interoperability при random H1/H2; пока требуется DisableCookies на обоих peers.
+- [ ] Differential tests MAC1/MAC2 и cookie flow против amneziawg-go.
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Кастомные таймеры.
 - [ ] Golden vectors и двусторонняя совместимость AWG 3.0 Rust ↔ Go.
@@ -69,4 +71,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает базовые AWG packet transforms, но MAC2 under-load, custom timers и внешняя проверка совместимости ещё впереди.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает основные AWG packet transforms, включая H1-H4/MAC1/MAC2, но Go differential tests, custom timers и внешняя проверка совместимости ещё впереди.
