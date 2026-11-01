@@ -1,10 +1,12 @@
 use boringtun_amnezia::awg::tunnel::{AwgTunnel, AwgTunnelOutput};
 use boringtun_amnezia::wireguard::x25519;
 use boringtun_amnezia::{AmneziaConfig, PacketPadding};
-use rand_core::RngCore;
+use rand_core::{CryptoRng, RngCore};
 use std::net::Ipv4Addr;
 
 struct FixedRng(u8);
+
+impl CryptoRng for FixedRng {}
 
 impl RngCore for FixedRng {
     fn next_u32(&mut self) -> u32 {
