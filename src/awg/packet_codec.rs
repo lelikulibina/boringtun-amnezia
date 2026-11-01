@@ -360,7 +360,8 @@ impl AwgPacketCodec {
                 {
                     continue;
                 }
-            } else if !header_range.contains(u32::from_le_bytes(candidate[..4].try_into().unwrap())) {
+            } else if !header_range.contains(u32::from_le_bytes(candidate[..4].try_into().unwrap()))
+            {
                 continue;
             }
 
