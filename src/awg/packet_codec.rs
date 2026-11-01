@@ -1074,6 +1074,105 @@ mod tests {
     }
 
     #[test]
+    fn randomized_h1_h2_are_supported_with_cookie_keys_and_cookies_enabled() {
+        let mut config = base_config(false);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
+        assert!(AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).is_ok());
+    }
+
+    #[test]
+    fn cookie_reply_capture_uses_local_key_for_issued_and_peer_key_for_received() {
+        let config = base_config(false);
+        let mut codec =
+            AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let sender_index = 0x1234_5678;
+        let mac1 = [0x5a; 16];
+        let cookie = [0x6b; 16];
+        let nonce = [0x7c; 24];
+
+        codec.last_inbound_handshake_context = Some((sender_index, mac1));
+        let local_cipher = XChaCha20Poly1305::new_from_slice(&codec.local_cookie_key.unwrap()).unwrap();
+        let local_encrypted = local_cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &cookie,
+                    aad: &mac1,
+                },
+            )
+            .unwrap();
+        let mut issued_reply = vec![0u8; 64];
+        issued_reply[..4].copy_from_slice(&3u32.to_le_bytes());
+        issued_reply[4..8].copy_from_slice(&sender_index.to_le_bytes());
+        issued_reply[8..32].copy_from_slice(&nonce);
+        issued_reply[32..64].copy_from_slice(&local_encrypted);
+        codec.capture_issued_cookie(&issued_reply).unwrap();
+        assert_eq!(codec.read_cookie, Some(cookie));
+
+        let random_mac1 = [0x31; 16];
+        let canonical_mac1 = [0x42; 16];
+        codec.last_outbound_handshake_context =
+            Some((sender_index, random_mac1, canonical_mac1));
+        let peer_cipher = XChaCha20Poly1305::new_from_slice(&codec.peer_cookie_key.unwrap()).unwrap();
+        let peer_encrypted = peer_cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &cookie,
+                    aad: &canonical_mac1,
+                },
+            )
+            .unwrap();
+        let mut received_reply = vec![0u8; 64];
+        received_reply[..4].copy_from_slice(&3u32.to_le_bytes());
+        received_reply[4..8].copy_from_slice(&sender_index.to_le_bytes());
+        received_reply[8..32].copy_from_slice(&nonce);
+        received_reply[32..64].copy_from_slice(&peer_encrypted);
+        codec.capture_cookie_reply(&received_reply).unwrap();
+        assert_eq!(codec.write_cookie, Some(cookie));
+    }
+
+    #[test]
+    fn randomized_handshake_rewrites_mac2_only_after_validating_original_cookie() {
+        let mut config = base_config(false);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.disable_cookies = false;
+
+        let local_a = [0x11; 32];
+        let local_b = [0x22; 32];
+        let cookie = [0x6b; 16];
+        let mut sender =
+            AwgPacketCodec::new_with_keys(&config, &local_a, &local_b).unwrap();
+        let mut receiver =
+            AwgPacketCodec::new_with_keys(&config, &local_b, &local_a).unwrap();
+        sender.write_cookie = Some(cookie);
+        receiver.read_cookie = Some(cookie);
+
+        let mut valid_packet = canonical_packet(MessageKind::HandshakeInitiation);
+        valid_packet[4..8].copy_from_slice(&0x1234_5678u32.to_le_bytes());
+        recompute_mac1(&mut valid_packet, &derive_mac1_key(&local_b)).unwrap();
+        recompute_mac2(&mut valid_packet, &cookie).unwrap();
+
+        let encoded = sender.encode(&valid_packet, 500, &mut FixedRng(0x44)).unwrap();
+        let decoded = receiver.decode(&encoded).unwrap();
+        assert_eq!(u32::from_le_bytes(decoded[..4].try_into().unwrap()), 1);
+        assert!(verify_mac1(&decoded, &derive_mac1_key(&local_b)));
+        assert!(verify_mac2(&decoded, &cookie));
+
+        let mut sender_without_cookie =
+            AwgPacketCodec::new_with_keys(&config, &local_a, &local_b).unwrap();
+        let mut invalid_packet = valid_packet;
+        let mac2_offset = invalid_packet.len() - 16;
+        invalid_packet[mac2_offset..].fill(0x99);
+        let encoded_invalid =
+            sender_without_cookie.encode(&invalid_packet, 500, &mut FixedRng(0x44)).unwrap();
+        let decoded_invalid = receiver.decode(&encoded_invalid).unwrap();
+        assert!(verify_mac1(&decoded_invalid, &derive_mac1_key(&local_b)));
+        assert!(!verify_mac2(&decoded_invalid, &cookie));
+    }
+
+    #[test]
     fn decode_never_panics_for_short_or_random_datagrams() {
         let mut codec = AwgPacketCodec::new(&base_config(true)).unwrap();
         let mut state = 0x1234_5678u32;
