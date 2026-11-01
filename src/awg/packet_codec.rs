@@ -88,8 +88,6 @@ pub enum PacketCodecError {
     InvalidCipherParameters,
     /// Для рандомизации H1/H2 необходимы ключи MAC1.
     MissingMac1Keys,
-    /// Рандомизация H1/H2 требует DisableCookies на обеих сторонах.
-    HeaderRandomizationRequiresDisableCookies,
     /// Не удалось вычислить MAC1 для handshake сообщения.
     Mac1ComputationFailed,
 }
@@ -119,9 +117,6 @@ impl fmt::Display for PacketCodecError {
             }
             Self::InvalidCipherParameters => f.write_str("неверные параметры ChaCha20"),
             Self::MissingMac1Keys => f.write_str("для H1/H2 randomization необходимы ключи MAC1"),
-            Self::HeaderRandomizationRequiresDisableCookies => {
-                f.write_str("рандомизация H1/H2 требует DisableCookies на обоих peers")
-            }
             Self::Mac1ComputationFailed => f.write_str("не удалось пересчитать MAC1"),
             Self::Mac2ComputationFailed => f.write_str("не удалось пересчитать MAC2"),
             Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать Cookie Reply"),
@@ -134,10 +129,10 @@ impl std::error::Error for PacketCodecError {}
 /// Кодек внешнего слоя AWG для канонических BoringTun сообщений.
 ///
 /// Реализует H1-H4, S1-S4, header protection и outer RandomTrailers для
-/// handshake/cookie. MAC1 пересчитывается при рандомизации H1/H2. Для этого
-/// режима обе стороны должны включить DisableCookies: BoringTun API не
-/// предоставляет cookie secret для пересчёта MAC2. Transport RandomTrailers,
-/// content padding, I1-I5 и junk обрабатываются AwgTunnel wrapper.
+/// handshake/cookie. Для H1/H2 проверяются исходные MAC1/MAC2, затем MAC
+/// пересчитываются после канонизации заголовка. Cookie Reply расшифровываются
+/// для синхронизации MAC2. Transport RandomTrailers, content padding, I1-I5
+/// и junk обрабатываются AwgTunnel wrapper.
 #[derive(Clone)]
 pub struct AwgPacketCodec {
     padding: [usize; 4],
