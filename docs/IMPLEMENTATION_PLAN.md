@@ -19,34 +19,36 @@
 - [x] Добавить integration tests полного handshake и защищённого transport обмена между двумя туннелями.
 - [ ] Добавить interoperability tests с внешним wireguard-go процессом.
 
-### Этап B — стабилизация конфигурации AWG
-- [x] Модели H1-H4, S1-S4, content padding.
+### Этап B — конфигурация AWG
+- [x] Модели H1-H4, S1-S4, content padding, junk, timing и 3.1 flags.
 - [x] Валидация непересекающихся H1-H4.
-- [x] Валидация требования S1-S4 >= 12 при HeaderProtectionKey.
-- [x] Модели junk-пакетов и рандомизируемых таймеров.
-- [x] Разделение RandomTrailers и DisableCookies как возможностей AWG 3.1.
-- [x] CPS parser/renderer I1-I5 с тестами восьми тегов Go.
+- [x] Валидация требования S1-S4 >= 12 при ненулевом HeaderProtectionKey.
+- [x] Ограничение Jc, проверка Jmin/Jmax и UDP payload ceiling.
+- [x] CPS parser/renderer восьми Go-тегов; отрицательные и чрезмерные размеры отклоняются.
 - [ ] Differential tests конфигурации и CPS против amneziawg-go.
 
-### Этап C — базовый AWG packet pipeline
+### Этап C — AWG packet pipeline
 - [x] S1-S4 padding для всех четырёх типов WG сообщений.
 - [x] ChaCha20 header protection: handshake/cookie целиком, transport header (16 байт) отдельно.
-- [x] Строгая проверка входных datagram через BoringTun parser.
 - [x] Wrapper для кодирования/декодирования сетевых пакетов вокруг BoringTun Tunn.
-- [x] Двусторонний интеграционный тест AWG handshake и IPv4 transport.
+- [x] Двусторонний integration test AWG handshake и IPv4 transport.
+- [x] I1-I5 pre-handshake datagrams и junk packets в правильном порядке.
+- [x] ContentPaddingAddition и RandomTrailers для handshake/cookie/обычного transport encapsulate.
+- [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
+- [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Произвольные H1-H4 и корректный пересчёт MAC1/MAC2.
-- [ ] Junk/I packet отправка, content padding, RandomTrailers и кастомные таймеры.
+- [ ] Кастомные таймеры.
 - [ ] Golden vectors и двусторонняя совместимость AWG 3.0 Rust ↔ Go.
 
 ### Этап D — AmneziaWG 3.1
-- [ ] RandomTrailers с точным поведением для каждого типа сообщения.
-- [ ] DisableCookies с корректным поведением under-load.
-- [ ] Differential tests и двусторонняя совместимость AWG 3.1 Rust ↔ Go.
+- [x] Базовые механизмы 3.1 RandomTrailers и DisableCookies.
+- [ ] Differential tests на точной версии amneziawg-go 3.1.
+- [ ] Совместимость с cookie/under-load и edge-case сценариями.
 
 ### Этап E — интеграция и hardening
 - [ ] Fuzzing парсеров и malformed packets.
 - [ ] Property-based tests, benchmarks и regression suite.
-- [ ] CI на Linux/macOS/Windows и сборка feature matrix.
+- [ ] CI на Linux/macOS/Windows и feature matrix.
 - [ ] Документация API, конфигурации и угроз.
 
 ## 3. Архитектурные ограничения
@@ -66,4 +68,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущий AWG pipeline покрывает S1-S4 и header protection при стандартных H type IDs; полная совместимость с AmneziaWG Go ещё не подтверждена.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая AWG реализация покрывает базовый packet pipeline, но H-range randomization, custom timers и внешняя проверка совместимости ещё впереди.
