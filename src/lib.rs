@@ -1,7 +1,16 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Начальный API конфигурации для будущей реализации WireGuard / AmneziaWG.
-//! Этот модуль пока не реализует сетевой протокол или криптографию.
+//! Конфигурационный API и протокольная основа WireGuard / AmneziaWG.
+//!
+//! Криптографическое ядро WireGuard предоставляется закреплённой зависимостью
+//! Cloudflare BoringTun. Собственный AWG packet transformation пока не реализован.
+
+/// Прямой доступ к проверенному протокольному движку Cloudflare BoringTun.
+#[cfg(feature = "wireguard")]
+pub mod wireguard {
+    pub use boringtun::noise::{Packet, Tunn, TunnResult};
+    pub use boringtun::x25519;
+}
 
 /// Режим протокола, который должен использовать будущий движок.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -108,11 +117,16 @@ impl EngineConfig {
                         return Err(ConfigError::InvalidRange { min: range.min, max: range.max });
                     }
                 }
-
+                // AmneziaWG documents a minimum padding requirement for header
+                // protection. Keep this check explicit until per-version rules
+                // are verified against the matching upstream source revision.
                 if config.headers.header_protection_key.is_some()
-                    && config.padding.s1.unwrap_or(0) < 12
+                    && [config.padding.s1, config.padding.s2, config.padding.s3, config.padding.s4]
+                        .into_iter()
+                        .flatten()
+                        .any(|padding| padding < 12)
                 {
-                    return Err(ConfigError::HeaderProtectionRequiresS1AtLeast12);
+                    return Err(ConfigError::HeaderProtectionRequiresPaddingAtLeast12);
                 }
                 Ok(())
             }
@@ -129,8 +143,8 @@ pub enum ConfigError {
     MissingAmneziaOptions,
     /// Для чистого WireGuard переданы параметры AWG.
     AmneziaOptionsForWireGuard,
-    /// Защита заголовков требует S1 не меньше 12 байт.
-    HeaderProtectionRequiresS1AtLeast12,
+    /// Защита заголовков требует padding не меньше 12 байт.
+    HeaderProtectionRequiresPaddingAtLeast12,
 }
 
 impl core::fmt::Display for ConfigError {
@@ -139,7 +153,7 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidRange { min, max } => write!(f, "некорректный диапазон: минимум {min} больше максимума {max}"),
             Self::MissingAmneziaOptions => f.write_str("для режима AmneziaWG необходима конфигурация AWG"),
             Self::AmneziaOptionsForWireGuard => f.write_str("параметры AmneziaWG нельзя передавать в режиме WireGuard"),
-            Self::HeaderProtectionRequiresS1AtLeast12 => f.write_str("защита заголовков требует S1 не меньше 12 байт"),
+            Self::HeaderProtectionRequiresPaddingAtLeast12 => f.write_str("защита заголовков требует padding не меньше 12 байт"),
         }
     }
 }
@@ -182,16 +196,23 @@ mod tests {
     }
 
     #[test]
-    fn header_protection_requires_minimum_s1_padding() {
-        let mut awg = AmneziaConfig::default();
-        awg.headers.header_protection_key = Some([0x42; 32]);
-        awg.padding.s1 = Some(11);
-        let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
-        assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresS1AtLeast12));
+    fn header_protection_rejects_any_configured_padding_below_twelve() {
+        for (s1, s2, s3, s4) in [
+            (Some(11), None, None, None),
+            (None, Some(11), None, None),
+            (None, None, Some(11), None),
+            (None, None, None, Some(11)),
+        ] {
+            let mut awg = AmneziaConfig::default();
+            awg.headers.header_protection_key = Some([0x42; 32]);
+            awg.padding = PacketPadding { s1, s2, s3, s4, content_padding: None };
+            let config = EngineConfig { mode: ProtocolMode::AmneziaWg30, amnezia: Some(awg) };
+            assert_eq!(config.validate(), Err(ConfigError::HeaderProtectionRequiresPaddingAtLeast12));
+        }
     }
 
     #[test]
-    fn header_protection_accepts_s1_of_twelve_or_more() {
+    fn header_protection_accepts_configured_padding_of_twelve() {
         let mut awg = AmneziaConfig::default();
         awg.headers.header_protection_key = Some([0x42; 32]);
         awg.padding.s1 = Some(12);
