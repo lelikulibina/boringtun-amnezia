@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_header_protection_key() {
-        let sender = AwgPacketCodec::new(&base_config(true)).unwrap();
+        let mut sender = AwgPacketCodec::new(&base_config(true)).unwrap();
         let mut wrong = base_config(true);
         wrong.headers.header_protection_key = Some([0x99; 32]);
         let receiver = AwgPacketCodec::new(&wrong).unwrap();
