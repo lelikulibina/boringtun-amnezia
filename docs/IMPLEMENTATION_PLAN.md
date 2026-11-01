@@ -32,8 +32,9 @@
 - [x] ChaCha20 header protection: handshake/cookie целиком, transport header (16 байт) отдельно.
 - [x] Wrapper для кодирования/декодирования сетевых пакетов вокруг BoringTun Tunn.
 - [x] Двусторонний integration test AWG handshake и IPv4 transport.
-- [x] I1-I5 pre-handshake datagrams и junk packets в правильном порядке.
+- [x] I1-I5 pre-handshake datagrams и junk-пакеты в правильном порядке.
 - [x] ContentPaddingAddition и RandomTrailers для handshake/cookie/обычного transport encapsulate.
+- [x] Стандартное дополнение transport plaintext до кратности 16 с учётом MTU.
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Произвольные H1-H4 и корректный пересчёт MAC1/MAC2.
@@ -68,4 +69,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая AWG реализация покрывает базовый packet pipeline, но H-range randomization, custom timers и внешняя проверка совместимости ещё впереди.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая AWG реализация покрывает S1-S4, header protection, I/J preambles, content padding и базовые 3.1 механизмы; H-range randomization, custom timers и внешняя проверка совместимости ещё впереди.
