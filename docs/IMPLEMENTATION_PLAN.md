@@ -2,12 +2,12 @@
 
 ## 0. Исходное состояние
 
-Целевой репозиторий изначально был пуст. Создан Rust crate и рабочая ветка. Все дальнейшие изменения ведутся через PR.
+Целевой репозиторий изначально был пуст. Создан Rust crate, рабочая ветка и CI. Все дальнейшие изменения ведутся через PR.
 
 ## 1. Закреплённые эталоны
 
 - Cloudflare BoringTun crate 0.7.1, точная Cargo dependency.
-- AmneziaWG Go v3: ревизия для аудита указана в docs/UPSTREAM.md.
+- AmneziaWG Go v3: ревизии для аудита указаны в docs/UPSTREAM.md.
 - WireGuard Go: контрольная ревизия указана в docs/UPSTREAM.md.
 
 ## 2. Этапы и фактический прогресс
@@ -17,7 +17,6 @@
 - [x] Сохранить лицензию BoringTun.
 - [x] Реэкспортировать Tunn API.
 - [x] Добавить integration tests полного handshake и защищённого transport обмена между двумя туннелями.
-- [ ] Проверить интеграционные тесты в CI; текущий первый CI запуск обнаружил только форматирование lib.rs, исправления внесены, требуется повторный запуск.
 - [ ] Добавить interoperability tests с внешним wireguard-go процессом.
 
 ### Этап B — стабилизация конфигурации AWG
@@ -26,15 +25,16 @@
 - [x] Валидация требования S1-S4 >= 12 при HeaderProtectionKey.
 - [x] Модели junk-пакетов и рандомизируемых таймеров.
 - [x] Разделение RandomTrailers и DisableCookies как возможностей AWG 3.1.
-- [x] CPS parser/renderer I1-I5 с тестами всех восьми тегов Go.
+- [x] CPS parser/renderer I1-I5 с тестами восьми тегов Go.
 - [ ] Differential tests конфигурации и CPS против amneziawg-go.
 
-### Этап C — AmneziaWG 3.0 packet transform
-- [ ] Сериализация/десериализация пакетов с S1-S4 и H1-H4.
-- [ ] ChaCha20 header protection с nonce из padding.
-- [ ] Пересчёт/проверка MAC1/MAC2 на канонических сообщениях.
-- [ ] Отправка I1-I5 и junk-пакетов перед handshake.
-- [ ] ContentPaddingAddition и рандомизируемые таймеры.
+### Этап C — базовый AWG packet codec
+- [x] S1-S4 padding для всех четырёх типов WG сообщений.
+- [x] ChaCha20 header protection: handshake/cookie целиком, transport header (16 байт) отдельно.
+- [x] Строгая проверка входных datagram через BoringTun parser.
+- [x] Отказ от неподдерживаемых функций вместо их молчаливого игнорирования.
+- [ ] Произвольные H1-H4 и корректный пересчёт MAC1/MAC2.
+- [ ] Junk/I packet отправка, content padding, RandomTrailers и кастомные таймеры.
 - [ ] Golden vectors и двусторонняя совместимость AWG 3.0 Rust ↔ Go.
 
 ### Этап D — AmneziaWG 3.1
@@ -65,4 +65,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация AWG ограничена конфигурационными типами, проверками и CPS-парсером.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая AWG реализация покрывает внешний framing S1-S4 и header protection при стандартных H type IDs; полная совместимость ещё не подтверждена.
