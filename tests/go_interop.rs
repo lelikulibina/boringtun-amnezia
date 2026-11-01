@@ -128,7 +128,7 @@ impl GoPeer {
     }
 
     fn flood_rust_mac1(&mut self) {
-        self.stdin.write_all(b"FLOOD\\n").expect("request Rust MAC1 flood");
+        self.stdin.write_all(b"FLOOD\n").expect("request Rust MAC1 flood");
         self.stdin.flush().expect("flush Rust MAC1 flood command");
         let line = self
             .lines
