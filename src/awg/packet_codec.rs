@@ -952,7 +952,7 @@ mod tests {
     }
 
     #[test]
-    fn randomized_handshake_headers_require_mac1_keys()
+    fn randomized_handshake_headers_require_mac1_keys() {
         let mut config = base_config(false);
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         assert_eq!(
@@ -978,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn randomized_h1_h2_require_mac1_keys()
+    fn randomized_h1_h2_require_mac1_keys() {
         let mut config = base_config(false);
         config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
