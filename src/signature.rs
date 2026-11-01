@@ -68,7 +68,9 @@ impl fmt::Display for SignatureError {
             Self::InvalidArguments(tag) => write!(f, "неверные аргументы CPS-тега <{tag}>"),
             Self::InvalidArgument(value) => write!(f, "неверный аргумент CPS-тега: {value}"),
             Self::PacketTooLarge => f.write_str("сигнатурный пакет превышает допустимый размер"),
-            Self::DataLengthDoesNotFit => f.write_str("длина входных данных не помещается в заданное число байт"),
+            Self::DataLengthDoesNotFit => {
+                f.write_str("длина входных данных не помещается в заданное число байт")
+            }
         }
     }
 }
@@ -87,7 +89,9 @@ impl SignatureTemplate {
 
         while let Some(start) = remaining.find('<') {
             let after_start = &remaining[start + 1..];
-            let end = after_start.find('>').ok_or(SignatureError::MissingClosingBracket)?;
+            let end = after_start
+                .find('>')
+                .ok_or(SignatureError::MissingClosingBracket)?;
             let tag_body = &after_start[..end];
             let mut fields = tag_body.split_whitespace();
             let name = fields.next().ok_or(SignatureError::EmptyTag)?;
@@ -98,7 +102,8 @@ impl SignatureTemplate {
 
             let part = match name {
                 "b" => {
-                    let value = argument.ok_or_else(|| SignatureError::InvalidArguments(name.into()))?;
+                    let value =
+                        argument.ok_or_else(|| SignatureError::InvalidArguments(name.into()))?;
                     let hex = value.strip_prefix("0x").unwrap_or(value);
                     if hex.is_empty() || hex.len() % 2 != 0 {
                         return Err(SignatureError::InvalidArgument(value.into()));
@@ -107,8 +112,10 @@ impl SignatureTemplate {
                     for pair in hex.as_bytes().chunks_exact(2) {
                         let text = std::str::from_utf8(pair)
                             .map_err(|_| SignatureError::InvalidArgument(value.into()))?;
-                        bytes.push(u8::from_str_radix(text, 16)
-                            .map_err(|_| SignatureError::InvalidArgument(value.into()))?);
+                        bytes.push(
+                            u8::from_str_radix(text, 16)
+                                .map_err(|_| SignatureError::InvalidArgument(value.into()))?,
+                        );
                     }
                     SignaturePart::Bytes(bytes)
                 }
@@ -119,8 +126,10 @@ impl SignatureTemplate {
                     SignaturePart::Timestamp
                 }
                 "r" | "rc" | "rd" => {
-                    let value = argument.ok_or_else(|| SignatureError::InvalidArguments(name.into()))?;
-                    let length = value.parse::<usize>()
+                    let value =
+                        argument.ok_or_else(|| SignatureError::InvalidArguments(name.into()))?;
+                    let length = value
+                        .parse::<usize>()
                         .map_err(|_| SignatureError::InvalidArgument(value.into()))?;
                     if length > MAX_RANDOM_TAG_SIZE {
                         return Err(SignatureError::PacketTooLarge);
@@ -135,11 +144,17 @@ impl SignatureTemplate {
                     if argument.is_some() {
                         return Err(SignatureError::InvalidArguments(name.into()));
                     }
-                    if name == "d" { SignaturePart::Data } else { SignaturePart::Base64Data }
+                    if name == "d" {
+                        SignaturePart::Data
+                    } else {
+                        SignaturePart::Base64Data
+                    }
                 }
                 "dz" => {
-                    let value = argument.ok_or_else(|| SignatureError::InvalidArguments(name.into()))?;
-                    let length = value.parse::<usize>()
+                    let value =
+                        argument.ok_or_else(|| SignatureError::InvalidArguments(name.into()))?;
+                    let length = value
+                        .parse::<usize>()
                         .map_err(|_| SignatureError::InvalidArgument(value.into()))?;
                     if length > 8 {
                         return Err(SignatureError::DataLengthDoesNotFit);
@@ -158,7 +173,8 @@ impl SignatureTemplate {
                 | SignaturePart::DataSize(n) => *n,
                 SignaturePart::Data | SignaturePart::Base64Data => 0,
             };
-            output_len = output_len.checked_add(part_len)
+            output_len = output_len
+                .checked_add(part_len)
                 .filter(|len| *len <= MAX_SIGNATURE_PACKET_SIZE)
                 .ok_or(SignatureError::PacketTooLarge)?;
             parts.push(part);
@@ -233,12 +249,16 @@ mod tests {
 
     struct FixedRng(u8);
     impl RngCore for FixedRng {
-        fn next_u32(&mut self) -> u32 { self.0 as u32 * 0x0101_0101 }
+        fn next_u32(&mut self) -> u32 {
+            self.0 as u32 * 0x0101_0101
+        }
         fn next_u64(&mut self) -> u64 {
             u64::from(self.next_u32()) | (u64::from(self.next_u32()) << 32)
         }
         fn fill_bytes(&mut self, dest: &mut [u8]) {
-            for byte in dest { *byte = self.0; }
+            for byte in dest {
+                *byte = self.0;
+            }
         }
         fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
             self.fill_bytes(dest);
@@ -251,8 +271,10 @@ mod tests {
         let template = SignatureTemplate::parse("<b 0xdeadbeef><t>").unwrap();
         let mut rng = FixedRng(7);
         assert_eq!(template.output_len(), 8);
-        assert_eq!(template.render(&mut rng, 0x0102_0304).unwrap(),
-            [0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4]);
+        assert_eq!(
+            template.render(&mut rng, 0x0102_0304).unwrap(),
+            [0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4]
+        );
     }
 
     #[test]
@@ -275,15 +297,27 @@ mod tests {
 
     #[test]
     fn rejects_invalid_hex_unknown_tags_and_unclosed_brackets() {
-        assert!(matches!(SignatureTemplate::parse("<b 0xabc>"), Err(SignatureError::InvalidArgument(_))));
-        assert!(matches!(SignatureTemplate::parse("<unknown>"), Err(SignatureError::UnknownTag(_))));
-        assert_eq!(SignatureTemplate::parse("<r 2"), Err(SignatureError::MissingClosingBracket));
+        assert!(matches!(
+            SignatureTemplate::parse("<b 0xabc>"),
+            Err(SignatureError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            SignatureTemplate::parse("<unknown>"),
+            Err(SignatureError::UnknownTag(_))
+        ));
+        assert_eq!(
+            SignatureTemplate::parse("<r 2"),
+            Err(SignatureError::MissingClosingBracket)
+        );
     }
 
     #[test]
     fn rejects_negative_and_oversized_random_lengths() {
         assert!(SignatureTemplate::parse("<r -1>").is_err());
-        assert_eq!(SignatureTemplate::parse("<r 1001>"), Err(SignatureError::PacketTooLarge));
+        assert_eq!(
+            SignatureTemplate::parse("<r 1001>"),
+            Err(SignatureError::PacketTooLarge)
+        );
     }
 
     #[test]
