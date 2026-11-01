@@ -5,7 +5,7 @@
 //! текущая версия принимает только H1-H4, равные стандартным WG type IDs.
 //! Случайные H-диапазоны требуют переноса MAC-генерации внутрь форка BoringTun.
 
-use crate::{AmneziaConfig, ProtocolMode, ValueRange};
+use crate::{AmneziaConfig, ValueRange};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use rand_core::RngCore;
@@ -48,15 +48,6 @@ impl MessageKind {
         }
     }
 
-    fn from_type_id(type_id: u32) -> Option<Self> {
-        match type_id {
-            1 => Some(Self::HandshakeInitiation),
-            2 => Some(Self::HandshakeResponse),
-            3 => Some(Self::CookieReply),
-            4 => Some(Self::Transport),
-            _ => None,
-        }
-    }
 }
 
 /// Ошибки создания или применения AWG packet codec.
@@ -358,6 +349,12 @@ mod tests {
             let mut rng = FixedRng(0xa5);
             let encoded = codec.encode(&packet, &mut rng).unwrap();
             assert_eq!(encoded.len(), packet.len() + codec.padding[kind.index()]);
+            if kind == MessageKind::Transport {
+                assert_eq!(
+                    &encoded[codec.padding[kind.index()] + TRANSPORT_HEADER_SIZE..],
+                    &packet[TRANSPORT_HEADER_SIZE..]
+                );
+            }
             assert_eq!(codec.decode(&encoded).unwrap(), packet);
         }
     }
