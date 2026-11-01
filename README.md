@@ -4,14 +4,16 @@ Rust-проект для поддержки стандартного WireGuard �
 
 ## Текущий статус
 
-- **WireGuard:** подключён Cloudflare BoringTun 0.7.1 через точную версию Cargo dependency. Публичный API движка доступен через `wireguard::Tunn`; добавлены интеграционные тесты handshake и зашифрованного обмена IPv4-пакетами.
-- **AWG framing:** реализован packet codec для S1-S4 padding и ChaCha20 header protection. Для transport защищаются только 16 байт заголовка; ciphertext не изменяется.
-- **AWG tunnel wrapper:** добавлена обёртка над BoringTun, которая кодирует исходящие и декодирует входящие пакеты. Есть интеграционный тест двустороннего handshake и IPv4 transport через AWG framing.
-- **I1-I5:** добавлен CPS-парсер/рендерер шаблонов.
-- **Ограничения:** случайные H1-H4, junk/signature отправка, content padding, RandomTrailers, DisableCookies и кастомные таймеры пока не подключены. Кодек явно отклоняет эти параметры, а не игнорирует их.
-- **Сетевой/TUN стек:** не входит в текущую библиотечную обёртку.
+- **WireGuard:** подключён Cloudflare BoringTun 0.7.1 через точную версию Cargo dependency. Публичный API доступен через `wireguard::Tunn`; есть integration tests handshake и зашифрованного обмена IPv4-пакетами.
+- **AWG framing:** реализованы S1-S4 padding и ChaCha20 header protection. Для transport защищаются только 16 байт заголовка; ciphertext не изменяется.
+- **AWG tunnel wrapper:** добавлена обёртка BoringTun с двусторонним handshake/transport.
+- **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies; для transport дополнительные нулевые байты добавляются до шифрования, для handshake/cookie trailer обрабатывается внешним codec.
+- **I1-I5 и junk:** CPS-шаблоны отправляются перед junk-пакетами и handshake в правильном порядке.
+- **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки.
+- **Ограничения:** произвольные H1-H4, кастомные таймеры и полный cookie/MAC interoperability с любыми конфигурациями пока не реализованы. Внутренние keepalive-пакеты BoringTun пока не получают transport padding addition.
+- **Сетевой/TUN стек:** не входит в библиотечную обёртку.
 
-Не используйте AWG-режимы в production до завершения дифференциальных тестов с amneziawg-go и полной проверки совместимости.
+Полная совместимость с amneziawg-go 3.0/3.1 ещё не заявляется: требуются differential и двусторонние interoperability-тесты.
 
 ## Сборка и тесты
 
