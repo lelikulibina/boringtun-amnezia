@@ -235,7 +235,7 @@ impl AwgTunnel {
         }
 
         if self.junk.count > 0 {
-            let width = (self.junk.max_size - self.junk.min_size + 1) as usize;
+            let width = (self.junk.max_size - self.junk.min_size) as usize;
             for _ in 0..self.junk.count {
                 let size = self.junk.min_size as usize + random_below(rng, width);
                 let mut packet = vec![0u8; size];
