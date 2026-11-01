@@ -77,7 +77,19 @@ jobs:
           cp tests/interop/underload_test_hook.go "$RUNNER_TEMP/amneziawg-go/device/interop_test_hook.go"
           cd "$RUNNER_TEMP/amneziawg-go"
           go build -o "$RUNNER_TEMP/awg-go-peer" ./cmd/interop-peer
+      - name: Получить закреплённую upstream WireGuard Go реализацию
+        run: |
+          git clone --depth 1 https://github.com/WireGuard/wireguard-go.git "$RUNNER_TEMP/wireguard-go"
+          git -C "$RUNNER_TEMP/wireguard-go" checkout b3bc704ef0ee21a36298601a9e1e5ff90377ac52
+      - name: Собрать независимый WireGuard Go peer
+        run: |
+          mkdir -p "$RUNNER_TEMP/wireguard-go/cmd/interop-peer"
+          gofmt -w tests/interop/wireguard_peer.go
+          cp tests/interop/wireguard_peer.go "$RUNNER_TEMP/wireguard-go/cmd/interop-peer/main.go"
+          cd "$RUNNER_TEMP/wireguard-go"
+          go build -o "$RUNNER_TEMP/wireguard-go-peer" ./cmd/interop-peer
       - name: Запустить двусторонние WG/AWG interoperability тесты
         env:
           AWG_GO_HELPER: ${{ runner.temp }}/awg-go-peer
+          WIREGUARD_GO_HELPER: ${{ runner.temp }}/wireguard-go-peer
         run: cargo test --test go_interop -- --ignored --nocapture
