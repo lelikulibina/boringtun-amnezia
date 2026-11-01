@@ -11,6 +11,7 @@ Rust-проект для поддержки стандартного WireGuard �
 - **Стандартное AWG padding:** при выключенных ContentPaddingAddition/RandomTrailers transport plaintext дополняется до кратности 16 с учётом MTU. MTU по умолчанию 1420; его можно изменить через `AwgTunnel::set_mtu`.
 - **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки.
 - **Ограничения:** произвольные H1-H4 и кастомные таймеры пока не реализованы. Внутренние keepalive-пакеты BoringTun пока не получают transport padding addition.
+- **Буферы:** `AwgTunnel::required_receive_buffer_size` сообщает минимальный размер receive buffer; для входящего datagram буфер должен быть не меньше и его длины. При смене endpoint вызовите `reset_udp_window`.
 - **Сетевой/TUN стек:** не входит в библиотечную обёртку.
 
 Полная совместимость с amneziawg-go 3.0/3.1 ещё не заявляется: требуются differential и двусторонние interoperability-тесты.
