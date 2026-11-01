@@ -226,7 +226,7 @@ impl AwgTunnel {
     ) -> usize {
         if let Some(range) = self.content_padding {
             if range.min != 0 || range.max != 0 {
-                let selected = random_inclusive(rng, range.min, range.max);
+                let selected = random_range(rng, range.min, range.max);
                 return (selected as usize).min(available);
             }
         }
@@ -295,8 +295,11 @@ fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
     random_below_u64(rng, upper) as usize
 }
 
-fn random_inclusive<R: RngCore>(rng: &mut R, min: u32, max: u32) -> u32 {
-    let width = u64::from(max) - u64::from(min) + 1;
+fn random_range<R: RngCore>(rng: &mut R, min: u32, max: u32) -> u32 {
+    if max <= min {
+        return min;
+    }
+    let width = u64::from(max) - u64::from(min);
     min + random_below_u64(rng, width) as u32
 }
 
