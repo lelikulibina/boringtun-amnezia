@@ -104,6 +104,10 @@ impl GoPeer {
             .expect("Go helper PORT line")
             .parse()
             .expect("valid Go helper UDP port");
+        let underload_line = lines
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Go helper did not activate under-load test mode");
+        assert_eq!(underload_line, "UNDERLOAD=1");
 
         Self {
             child,
@@ -116,22 +120,6 @@ impl GoPeer {
     fn send_tun_packet(&mut self, packet: &[u8]) {
         writeln!(self.stdin, "SEND:{}", encode_hex(packet)).expect("send packet to Go TUN");
         self.stdin.flush().expect("flush Go helper stdin");
-    }
-
-    fn is_under_load(&mut self) -> bool {
-        self.stdin
-            .write_all(b"LOAD?\n")
-            .expect("query Go peer load state");
-        self.stdin.flush().expect("flush Go peer load query");
-        let line = self
-            .lines
-            .recv_timeout(Duration::from_secs(5))
-            .expect("timed out waiting for Go peer load state");
-        match line.as_str() {
-            "UNDERLOAD=1" => true,
-            "UNDERLOAD=0" => false,
-            _ => panic!("unexpected Go peer load response: {line}"),
-        }
     }
 
     fn receive_tun_packet(&self) -> Vec<u8> {
@@ -289,77 +277,6 @@ fn awg_config(is_31: bool) -> AmneziaConfig {
     }
 }
 
-fn build_wireguard_underload_probes(
-    local_private_key: &[u8; 32],
-    peer_public_key: &x25519::PublicKey,
-) -> Vec<Vec<u8>> {
-    let mut probes = Vec::with_capacity(512);
-    for index in 0..512u32 {
-        let mut tunnel = Tunn::new(
-            x25519::StaticSecret::from(*local_private_key),
-            *peer_public_key,
-            None,
-            None,
-            10_000 + index,
-            None,
-        );
-        let mut buffer = [0u8; 2048];
-        match tunnel.format_handshake_initiation(&mut buffer, true) {
-            TunnResult::WriteToNetwork(packet) => probes.push(packet.to_vec()),
-            other => panic!("expected WireGuard load probe, got {other:?}"),
-        }
-    }
-    probes
-}
-
-fn build_awg_underload_probes(
-    mode: ProtocolMode,
-    local_private_key: &[u8; 32],
-    peer_public_key: &x25519::PublicKey,
-    config: &AmneziaConfig,
-) -> Vec<Vec<u8>> {
-    let mut probes = Vec::with_capacity(512);
-    for index in 0..512u32 {
-        let mut tunnel = AwgTunnel::new(
-            mode,
-            x25519::StaticSecret::from(*local_private_key),
-            *peer_public_key,
-            None,
-            None,
-            20_000 + index,
-            config,
-        )
-        .expect("create AWG load probe tunnel");
-        let mut rng = FixedRng((index % 254 + 1) as u8);
-        let mut buffer = [0u8; 2048];
-        match tunnel
-            .initiate_handshake(&mut buffer, true, &mut rng)
-            .expect("format AWG load probe")
-        {
-            AwgTunnelOutput::WriteToNetwork(packet) => probes.push(packet),
-            AwgTunnelOutput::WriteToNetworkBatch(packets) => probes.extend(packets),
-            other => panic!("expected AWG load probe packets, got {other:?}"),
-        }
-    }
-    probes
-}
-
-fn force_go_under_load(peer: &mut GoPeer, probes: &[Vec<u8>]) {
-    let flood_socket = UdpSocket::bind("127.0.0.1:0").expect("bind load-probe UDP socket");
-    for _ in 0..5 {
-        for packet in probes {
-            flood_socket
-                .send_to(packet, peer.address)
-                .expect("send valid-MAC1 load probe");
-        }
-        thread::sleep(Duration::from_millis(100));
-        if peer.is_under_load() {
-            return;
-        }
-    }
-    panic!("pinned amneziawg-go peer did not enter under-load state after valid-MAC1 probes");
-}
-
 fn run_wireguard_interop() {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
     socket
@@ -374,9 +291,6 @@ fn run_wireguard_interop() {
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn("wireguard", &go_secret_bytes, rust_public.as_bytes(), local);
     let mut tunnel = Tunn::new(rust_secret, go_public, None, None, 1, None);
-
-    let probes = build_wireguard_underload_probes(&rust_secret_bytes, &go_public);
-    force_go_under_load(&mut peer, &probes);
 
     let mut buffer = [0u8; 2048];
     let mut initiation = match tunnel.format_handshake_initiation(&mut buffer, true) {
@@ -455,9 +369,6 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let config = awg_config(is_31);
     let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public, None, None, 1, &config)
         .expect("create Rust AWG tunnel");
-
-    let probes = build_awg_underload_probes(mode, &rust_secret_bytes, &go_public, &config);
-    force_go_under_load(&mut peer, &probes);
 
     let mut rng = FixedRng(0x51);
     let mut buffer = [0u8; 2048];
