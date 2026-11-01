@@ -85,8 +85,6 @@ pub enum PacketCodecError {
     InvalidCipherParameters,
     /// Для рандомизации H1/H2 необходимы ключи MAC1.
     MissingMac1Keys,
-    /// Рандомизация H1/H2 требует DisableCookies на обеих сторонах.
-    HeaderRandomizationRequiresDisableCookies,
     /// Не удалось вычислить MAC1 для handshake сообщения.
     Mac1ComputationFailed,
 }
@@ -677,7 +675,6 @@ mod tests {
     #[test]
     fn randomized_h1_h2_require_mac1_keys() {
         let mut config = base_config(false);
-        config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
         assert_eq!(
