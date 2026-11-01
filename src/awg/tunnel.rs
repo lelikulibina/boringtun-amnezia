@@ -232,6 +232,19 @@ impl AwgTunnel {
             self.tunn.decapsulate(src_addr, &[], dst)
         } else {
             let canonical = self.codec.decode(datagram)?;
+
+            // AWG MAC1 is authenticated with the randomized H1/H2 header.
+            // BoringTun's internal CookieGenerator only retains the canonical
+            // MAC1, so it cannot authenticate a Go Cookie Reply whose AEAD
+            // associated data contains the randomized MAC1. The codec has
+            // already decrypted and retained this cookie; it will attach
+            // MAC2 to the next initiation. Do not pass this reply to BoringTun.
+            if canonical.len() == 64
+                && u32::from_le_bytes(canonical[..4].try_into().unwrap()) == 3
+            {
+                return Ok(AwgTunnelOutput::Done);
+            }
+
             self.tunn.decapsulate(src_addr, &canonical, dst)
         };
         self.map_result(result, rng)
