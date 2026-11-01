@@ -149,6 +149,7 @@ impl AwgTunnel {
         force_resend: bool,
         rng: &mut R,
     ) -> Result<AwgTunnelOutput, AwgTunnelError> {
+        Self::check_destination_buffer(dst.len(), 148)?;
         let result = self.tunn.format_handshake_initiation(dst, force_resend);
         match result {
             TunnResult::WriteToNetwork(packet) => {
@@ -171,6 +172,10 @@ impl AwgTunnel {
         dst: &mut [u8],
         rng: &mut R,
     ) -> Result<AwgTunnelOutput, AwgTunnelError> {
+        if self.mtu != 0 && inner_packet.len() > self.mtu {
+            return Err(PacketCodecError::PacketTooLarge.into());
+        }
+
         let base_size = self
             .codec
             .transport_padding()
@@ -194,6 +199,8 @@ impl AwgTunnel {
         let mut plaintext = inner_packet.to_vec();
         plaintext.resize(plaintext.len() + extra_padding, 0);
 
+        let required_buffer = plaintext.len().saturating_add(MIN_TRANSPORT_MESSAGE_SIZE).max(148);
+        Self::check_destination_buffer(dst.len(), required_buffer)?;
         let result = self.tunn.encapsulate(&plaintext, dst);
         self.map_result(result, rng)
     }
@@ -209,6 +216,11 @@ impl AwgTunnel {
         dst: &mut [u8],
         rng: &mut R,
     ) -> Result<AwgTunnelOutput, AwgTunnelError> {
+        let required_buffer = self
+            .required_receive_buffer_size()
+            .max(datagram.len())
+            .max(148);
+        Self::check_destination_buffer(dst.len(), required_buffer)?;
         let result = if datagram.is_empty() {
             self.tunn.decapsulate(src_addr, &[], dst)
         } else {
@@ -216,6 +228,11 @@ impl AwgTunnel {
             self.tunn.decapsulate(src_addr, &canonical, dst)
         };
         self.map_result(result, rng)
+    }
+
+    /// Возвращает минимальный размер буфера для decapsulate без учёта текущего входящего datagram.
+    pub fn required_receive_buffer_size(&self) -> usize {
+        self.udp_window.saturating_add(15).max(148)
     }
 
     /// Сбрасывает обученное UDP окно после смены endpoint.
@@ -232,6 +249,13 @@ impl AwgTunnel {
             return Err(PacketCodecError::PacketTooLarge.into());
         }
         self.mtu = mtu;
+        Ok(())
+    }
+
+    fn check_destination_buffer(actual: usize, required: usize) -> Result<(), AwgTunnelError> {
+        if actual < required {
+            return Err(PacketCodecError::DestinationBufferTooSmall { required, actual }.into());
+        }
         Ok(())
     }
 
