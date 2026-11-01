@@ -61,8 +61,18 @@ impl GoPeer {
         peer_public_key: &[u8; 32],
         endpoint: SocketAddr,
     ) -> Self {
-        let helper = std::env::var("AWG_GO_HELPER")
-            .expect("AWG_GO_HELPER must point to the pinned Go peer helper");
+        Self::spawn_with_env("AWG_GO_HELPER", mode, private_key, peer_public_key, endpoint)
+    }
+
+    fn spawn_with_env(
+        helper_env: &str,
+        mode: &str,
+        private_key: &[u8; 32],
+        peer_public_key: &[u8; 32],
+        endpoint: SocketAddr,
+    ) -> Self {
+        let helper = std::env::var(helper_env)
+            .unwrap_or_else(|_| panic!("{helper_env} must point to the pinned Go peer helper"));
         let mut child = Command::new(helper)
             .args([
                 "--mode",
@@ -107,7 +117,7 @@ impl GoPeer {
         let underload_line = lines
             .recv_timeout(Duration::from_secs(5))
             .expect("Go helper did not activate under-load test mode");
-        let expected_ready_line = if mode == "wg-client" {
+        let expected_ready_line = if mode == "wg-client" || mode == "wireguard-go" {
             "READY=1"
         } else {
             "UNDERLOAD=1"
