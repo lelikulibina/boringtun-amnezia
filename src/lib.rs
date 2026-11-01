@@ -52,6 +52,33 @@ impl ValueRange {
     }
 }
 
+/// Разбирает AWG-значение диапазона: число, диапазон или явное отключение.
+pub fn parse_optional_range(value: &str) -> Result<Option<ValueRange>, ConfigError> {
+    let value = value.trim();
+    if value == "(off)" || value.eq_ignore_ascii_case("off") {
+        return Ok(None);
+    }
+
+    let parse_number = |part: &str| {
+        part.trim()
+            .parse::<u32>()
+            .map_err(|_| ConfigError::InvalidRangeSyntax(value.to_owned()))
+    };
+
+    if let Some((min, max)) = value.split_once('-') {
+        if max.contains('-') {
+            return Err(ConfigError::InvalidRangeSyntax(value.to_owned()));
+        }
+        return ValueRange::new(parse_number(min)?, parse_number(max)?).map(Some);
+    }
+
+    let fixed = parse_number(value)?;
+    Ok(Some(ValueRange {
+        min: fixed,
+        max: fixed,
+    }))
+}
+
 /// Параметры маскирования заголовков AWG 3+.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HeaderObfuscation {
@@ -123,6 +150,8 @@ pub struct AmneziaConfig {
     pub random_trailers: bool,
     /// AWG 3.1: отключение cookie-механизма.
     pub disable_cookies: bool,
+    /// До пяти шаблонов сигнатурных пакетов I1-I5.
+    pub signature_packets: [Option<crate::signature::SignatureTemplate>; 5],
 }
 
 /// Конфигурация выбранного режима протокола.
@@ -162,6 +191,24 @@ impl EngineConfig {
                             min: range.min,
                             max: range.max,
                         });
+                    }
+                }
+
+                let header_ranges = [
+                    config.headers.h1,
+                    config.headers.h2,
+                    config.headers.h3,
+                    config.headers.h4,
+                ];
+                for left_index in 0..header_ranges.len() {
+                    for right_index in (left_index + 1)..header_ranges.len() {
+                        if let (Some(left), Some(right)) =
+                            (header_ranges[left_index], header_ranges[right_index])
+                        {
+                            if left.min <= right.max && right.min <= left.max {
+                                return Err(ConfigError::OverlappingHeaderRanges);
+                            }
+                        }
                     }
                 }
 
@@ -207,6 +254,10 @@ impl EngineConfig {
 pub enum ConfigError {
     /// Нижняя граница диапазона больше верхней.
     InvalidRange { min: u32, max: u32 },
+    /// Строка диапазона не соответствует формату AWG.
+    InvalidRangeSyntax(String),
+    /// Диапазоны H1-H4 пересекаются.
+    OverlappingHeaderRanges,
     /// Для AWG-режима не переданы AWG-параметры.
     MissingAmneziaOptions,
     /// Для чистого WireGuard переданы параметры AWG.
@@ -226,6 +277,12 @@ impl core::fmt::Display for ConfigError {
                 f,
                 "некорректный диапазон: минимум {min} больше максимума {max}"
             ),
+            Self::InvalidRangeSyntax(value) => {
+                write!(f, "неверный формат диапазона: {value}")
+            }
+            Self::OverlappingHeaderRanges => {
+                f.write_str("диапазоны H1-H4 не должны пересекаться")
+            }
             Self::MissingAmneziaOptions => {
                 f.write_str("для режима AmneziaWG необходима конфигурация AWG")
             }
@@ -261,6 +318,16 @@ mod tests {
         assert!(range.contains(5));
         assert!(!range.contains(1));
         assert!(!range.contains(6));
+    }
+
+    #[test]
+    fn parses_fixed_ranges_ranges_and_off_values() {
+        assert_eq!(parse_optional_range("12"), Ok(Some(ValueRange { min: 12, max: 12 })));
+        assert_eq!(parse_optional_range("10-20"), Ok(Some(ValueRange { min: 10, max: 20 })));
+        assert_eq!(parse_optional_range("(off)"), Ok(None));
+        assert_eq!(parse_optional_range("off"), Ok(None));
+        assert!(parse_optional_range("20-10").is_err());
+        assert!(parse_optional_range("1-2-3").is_err());
     }
 
     #[test]
@@ -390,6 +457,30 @@ mod tests {
         };
         let config = EngineConfig {
             mode: ProtocolMode::AmneziaWg31,
+            amnezia: Some(awg),
+        };
+        assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[test]
+    fn overlapping_header_ranges_are_rejected() {
+        let mut awg = AmneziaConfig::default();
+        awg.headers.h1 = Some(ValueRange { min: 1, max: 5 });
+        awg.headers.h2 = Some(ValueRange { min: 5, max: 9 });
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
+        assert_eq!(config.validate(), Err(ConfigError::OverlappingHeaderRanges));
+    }
+
+    #[test]
+    fn adjacent_header_ranges_are_accepted() {
+        let mut awg = AmneziaConfig::default();
+        awg.headers.h1 = Some(ValueRange { min: 1, max: 4 });
+        awg.headers.h2 = Some(ValueRange { min: 5, max: 9 });
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
             amnezia: Some(awg),
         };
         assert_eq!(config.validate(), Ok(()));
