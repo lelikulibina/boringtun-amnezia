@@ -199,7 +199,10 @@ impl AwgTunnel {
         let mut plaintext = inner_packet.to_vec();
         plaintext.resize(plaintext.len() + extra_padding, 0);
 
-        let required_buffer = plaintext.len().saturating_add(MIN_TRANSPORT_MESSAGE_SIZE).max(148);
+        let required_buffer = plaintext
+            .len()
+            .saturating_add(MIN_TRANSPORT_MESSAGE_SIZE)
+            .max(148);
         Self::check_destination_buffer(dst.len(), required_buffer)?;
         let result = self.tunn.encapsulate(&plaintext, dst);
         self.map_result(result, rng)
