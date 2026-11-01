@@ -139,6 +139,10 @@ func main() {
 		os.Exit(1)
 	}
 	tunDevice.events <- tun.EventUp
+	if !device.VerifyNaturalUnderLoadThresholdForInterop() {
+		fmt.Fprintln(os.Stderr, "Go natural under-load queue threshold check failed")
+		os.Exit(1)
+	}
 	device.ForceUnderLoadForInterop(dev)
 
 	state, err := dev.IpcGet()
