@@ -194,6 +194,7 @@ pub struct AmneziaConfig {
     /// AWG 3.1: отключение cookie-механизма.
     pub disable_cookies: bool,
     /// До пяти шаблонов сигнатурных пакетов I1-I5.
+    #[cfg(feature = "amneziawg")]
     pub signature_packets: [Option<crate::signature::SignatureTemplate>; 5],
 }
 
