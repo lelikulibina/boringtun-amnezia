@@ -17,6 +17,10 @@ Rust-проект для поддержки стандартного WireGuard �
     cargo test --workspace --all-features
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+## Статус проверок
+
+Сборка и форматирование проверяются GitHub Actions в PR.
+
 ## Upstream
 
 - Cloudflare BoringTun: https://github.com/cloudflare/boringtun
