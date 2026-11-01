@@ -139,6 +139,18 @@ impl GoPeer {
         assert_eq!(line, "FLOOD_SENT=10");
     }
 
+    fn rotate_cookie_secret(&mut self) {
+        self.stdin
+            .write_all(b"ROTATE_COOKIE\n")
+            .expect("request Go cookie secret rotation");
+        self.stdin.flush().expect("flush cookie rotation command");
+        let line = self
+            .lines
+            .recv_timeout(Duration::from_secs(5))
+            .expect("timed out waiting for Go cookie secret rotation");
+        assert_eq!(line, "COOKIE_ROTATED=1");
+    }
+
     fn receive_tun_packet(&self) -> Vec<u8> {
         let line = self
             .lines
