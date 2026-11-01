@@ -151,6 +151,7 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("PORT=%s\n", port)
+	fmt.Println("UNDERLOAD=1")
 
 	go func() {
 		for {
