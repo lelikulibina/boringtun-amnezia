@@ -4,9 +4,11 @@ Rust-проект для поддержки стандартного WireGuard �
 
 ## Текущий статус
 
-- **WireGuard:** подключён опубликованный Cloudflare BoringTun 0.7.1 через точную версию зависимости Cargo. Публичный API движка доступен через `wireguard::Tunn`; добавлены интеграционные тесты handshake и зашифрованного обмена IPv4-пакетами.
-- **AmneziaWG:** добавлены модели параметров и валидация H1-H4/S1-S4, Header Protection, junk bounds, диапазонов таймеров и 3.1-флагов. Добавлен тестируемый CPS-парсер/рендерер I1-I5.
-- **Преобразование пакетов AWG:** ещё не реализовано. Наличие конфигурации и CPS-генератора не означает совместимость AWG.
+- **WireGuard:** подключён Cloudflare BoringTun 0.7.1 через точную версию Cargo dependency. Публичный API движка доступен через `wireguard::Tunn`; добавлены интеграционные тесты handshake и зашифрованного обмена IPv4-пакетами.
+- **AWG framing:** реализован отдельный packet codec для S1-S4 padding и ChaCha20 header protection. Он сохраняет стандартные H1-H4 type IDs, чтобы MAC1/MAC2 BoringTun оставались корректными.
+- **AWG configuration:** добавлены проверки диапазонов, пересечений H1-H4, Header Protection, junk bounds и флагов 3.1.
+- **I1-I5:** добавлен CPS-парсер/рендерер шаблонов.
+- **Ограничения:** случайные H1-H4, junk/signature отправка, content padding, RandomTrailers, DisableCookies и кастомные таймеры пока не подключены к движку. Кодек явно отклоняет эти параметры, а не игнорирует их.
 - **Сетевой/TUN стек:** не входит в текущую библиотечную обёртку.
 
 Не используйте AWG-режимы в production до завершения двусторонних interoperability-тестов.
@@ -16,10 +18,6 @@ Rust-проект для поддержки стандартного WireGuard �
     cargo fmt --all -- --check
     cargo test --workspace --all-features
     cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-## Статус проверок
-
-Сборка и форматирование проверяются GitHub Actions в PR.
 
 ## Upstream
 
