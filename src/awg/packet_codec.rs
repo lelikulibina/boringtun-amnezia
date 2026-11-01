@@ -11,6 +11,8 @@ use blake2::{Blake2s256, Blake2sMac, Digest};
 use boringtun::noise::{Packet, Tunn};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand_core::{CryptoRng, RngCore};
 use std::fmt;
 use zeroize::Zeroize;
@@ -121,6 +123,8 @@ impl fmt::Display for PacketCodecError {
                 f.write_str("рандомизация H1/H2 требует DisableCookies на обоих peers")
             }
             Self::Mac1ComputationFailed => f.write_str("не удалось пересчитать MAC1"),
+            Self::Mac2ComputationFailed => f.write_str("не удалось пересчитать MAC2"),
+            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать Cookie Reply"),
         }
     }
 }
