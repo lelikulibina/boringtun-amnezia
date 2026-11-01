@@ -447,20 +447,10 @@ mod tests {
         rate_limiter: Option<Arc<RateLimiter>>,
     ) -> AwgTunnel {
         let local_public = x25519::PublicKey::from(&static_private);
-        let codec = AwgPacketCodec::new_with_keys(
-            config,
-            local_public.as_bytes(),
-            peer_public.as_bytes(),
-        )
-        .unwrap();
-        let tunn = Tunn::new(
-            static_private,
-            peer_public,
-            None,
-            None,
-            index,
-            rate_limiter,
-        );
+        let codec =
+            AwgPacketCodec::new_with_keys(config, local_public.as_bytes(), peer_public.as_bytes())
+                .unwrap();
+        let tunn = Tunn::new(static_private, peer_public, None, None, index, rate_limiter);
         AwgTunnel {
             tunn,
             codec,
@@ -508,20 +498,9 @@ mod tests {
         let server_public = x25519::PublicKey::from(&server_secret);
         let limiter = Arc::new(RateLimiter::new(&server_public, 0));
 
-        let mut client = tunnel_with_rate_limiter(
-            client_secret,
-            server_public,
-            1,
-            &config,
-            None,
-        );
-        let mut server = tunnel_with_rate_limiter(
-            server_secret,
-            client_public,
-            2,
-            &config,
-            Some(limiter),
-        );
+        let mut client = tunnel_with_rate_limiter(client_secret, server_public, 1, &config, None);
+        let mut server =
+            tunnel_with_rate_limiter(server_secret, client_public, 2, &config, Some(limiter));
 
         let remote = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 23));
         let mut client_buffer = [0u8; 2048];
@@ -529,53 +508,57 @@ mod tests {
         let mut client_rng = FixedRng(0x31);
         let mut server_rng = FixedRng(0x42);
 
-        let initial = client.initiate_handshake(
-            &mut client_buffer,
-            true,
-            &mut client_rng,
-        ).unwrap();
+        let initial = client
+            .initiate_handshake(&mut client_buffer, true, &mut client_rng)
+            .unwrap();
         let initial_packet = last_network_packet(initial);
-        let cookie_reply = server.decapsulate(
-            Some(remote),
-            &initial_packet,
-            &mut server_buffer,
-            &mut server_rng,
-        ).unwrap();
+        let cookie_reply = server
+            .decapsulate(
+                Some(remote),
+                &initial_packet,
+                &mut server_buffer,
+                &mut server_rng,
+            )
+            .unwrap();
         let cookie_reply = last_network_packet(cookie_reply);
         assert_eq!(cookie_reply.len(), 12 + 64);
 
         assert_eq!(
-            client.decapsulate(
-                Some(remote),
-                &cookie_reply,
-                &mut client_buffer,
-                &mut client_rng,
-            ).unwrap(),
+            client
+                .decapsulate(
+                    Some(remote),
+                    &cookie_reply,
+                    &mut client_buffer,
+                    &mut client_rng,
+                )
+                .unwrap(),
             AwgTunnelOutput::Done
         );
 
-        let retry = client.initiate_handshake(
-            &mut client_buffer,
-            true,
-            &mut client_rng,
-        ).unwrap();
+        let retry = client
+            .initiate_handshake(&mut client_buffer, true, &mut client_rng)
+            .unwrap();
         let retry_packet = last_network_packet(retry);
-        let response = server.decapsulate(
-            Some(remote),
-            &retry_packet,
-            &mut server_buffer,
-            &mut server_rng,
-        ).unwrap();
+        let response = server
+            .decapsulate(
+                Some(remote),
+                &retry_packet,
+                &mut server_buffer,
+                &mut server_rng,
+            )
+            .unwrap();
         let response_packet = last_network_packet(response);
 
         // A second Cookie Reply would be 12 + 64 bytes. A 12 + 92 byte
         // response proves the server accepted the cookie-backed MAC2.
         assert_eq!(response_packet.len(), 12 + 92);
-        client.decapsulate(
-            Some(remote),
-            &response_packet,
-            &mut client_buffer,
-            &mut client_rng,
-        ).unwrap();
+        client
+            .decapsulate(
+                Some(remote),
+                &response_packet,
+                &mut client_buffer,
+                &mut client_rng,
+            )
+            .unwrap();
     }
 }
