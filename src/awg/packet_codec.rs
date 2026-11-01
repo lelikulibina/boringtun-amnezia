@@ -648,10 +648,34 @@ mod tests {
         config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
         assert_eq!(
             AwgPacketCodec::new(&config).err(),
-            Some(PacketCodecError::UnsupportedOption(
-                "произвольные H1-H4 требуют пересчёта MAC внутри BoringTun"
-            ))
+            Some(PacketCodecError::HeaderRandomizationRequiresDisableCookies)
         );
+    }
+
+    #[test]
+    fn randomized_h1_h2_require_disable_cookies_and_mac1_keys() {
+        let mut config = base_config(false);
+        config.disable_cookies = true;
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
+        assert_eq!(
+            AwgPacketCodec::new(&config).err(),
+            Some(PacketCodecError::MissingMac1Keys)
+        );
+    }
+
+    #[test]
+    fn randomized_h3_h4_work_without_handshake_mac_keys() {
+        let mut config = base_config(false);
+        config.headers.h3 = Some(ValueRange { min: 50, max: 60 });
+        config.headers.h4 = Some(ValueRange { min: 70, max: 80 });
+        let codec = AwgPacketCodec::new(&config).unwrap();
+
+        for kind in [MessageKind::CookieReply, MessageKind::Transport] {
+            let packet = canonical_packet(kind);
+            let encoded = codec.encode(&packet, 500, &mut FixedRng(0x2b)).unwrap();
+            assert_eq!(codec.decode(&encoded).unwrap(), packet);
+        }
     }
 
     #[test]
