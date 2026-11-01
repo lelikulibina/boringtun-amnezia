@@ -10,7 +10,7 @@ name = "boringtun_amnezia"
 path = "src/lib.rs"
 
 [features]
-default = ["wireguard", "amneziawg"]
+default = ["wireguard", "amneziawg-3-0", "amneziawg-3-1"]
 wireguard = []
 amneziawg = ["wireguard"]
 amneziawg-3-0 = ["amneziawg"]
