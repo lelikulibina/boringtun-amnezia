@@ -185,9 +185,7 @@ func main() {
 		os.Exit(1)
 	}
 	tunDevice.events <- tun.EventUp
-	if *mode == "wg-client" {
-		fmt.Println("READY=1")
-	} else {
+	if *mode != "wg-client" {
 		if !device.VerifyNaturalUnderLoadThresholdForInterop() {
 			fmt.Fprintln(os.Stderr, "Go natural under-load queue threshold check failed")
 			os.Exit(1)
