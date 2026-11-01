@@ -120,7 +120,7 @@ impl GoPeer {
 
     fn is_under_load(&mut self) -> bool {
         self.stdin
-            .write_all(b"LOAD?\\n")
+            .write_all(b"LOAD?\n")
             .expect("query Go peer load state");
         self.stdin.flush().expect("flush Go peer load query");
         let line = self
@@ -323,7 +323,7 @@ fn build_awg_underload_probes(
         let mut tunnel = AwgTunnel::new(
             mode,
             x25519::StaticSecret::from(*local_private_key),
-            peer_public_key.clone(),
+            *peer_public_key,
             None,
             None,
             20_000 + index,
@@ -453,7 +453,7 @@ fn run_awg_interop(mode: ProtocolMode, go_mode: &str, is_31: bool) {
     let go_public = x25519::PublicKey::from(&go_secret);
     let mut peer = GoPeer::spawn(go_mode, &go_secret_bytes, rust_public.as_bytes(), local);
     let config = awg_config(is_31);
-    let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public.clone(), None, None, 1, &config)
+    let mut tunnel = AwgTunnel::new(mode, rust_secret, go_public, None, None, 1, &config)
         .expect("create Rust AWG tunnel");
 
     let probes = build_awg_underload_probes(mode, &rust_secret_bytes, &go_public, &config);
