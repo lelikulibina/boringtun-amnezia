@@ -714,10 +714,11 @@ mod tests {
         let mut config = base_config(false);
         config.disable_cookies = true;
         config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
-        let codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x11; 32]).unwrap();
 
         let mut packet = canonical_packet(MessageKind::HandshakeInitiation);
-        packet[packet.len() - 16..].fill(0x77);
+        let mac2_offset = packet.len() - 16;
+        packet[mac2_offset..].fill(0x77);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x31)).unwrap();
 
         assert_eq!(&encoded[12 + 148 - 16..12 + 148], &[0x77; 16]);
