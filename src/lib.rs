@@ -212,19 +212,29 @@ impl EngineConfig {
                 }
 
                 let header_ranges = [
-                    config.headers.h1,
-                    config.headers.h2,
-                    config.headers.h3,
-                    config.headers.h4,
+                    config.headers.h1.unwrap_or(ValueRange { min: 1, max: 1 }),
+                    config.headers.h2.unwrap_or(ValueRange { min: 2, max: 2 }),
+                    config.headers.h3.unwrap_or(ValueRange { min: 3, max: 3 }),
+                    config.headers.h4.unwrap_or(ValueRange { min: 4, max: 4 }),
                 ];
                 for left_index in 0..header_ranges.len() {
                     for right_index in (left_index + 1)..header_ranges.len() {
-                        if let (Some(left), Some(right)) =
-                            (header_ranges[left_index], header_ranges[right_index])
-                        {
-                            if left.min <= right.max && right.min <= left.max {
-                                return Err(ConfigError::OverlappingHeaderRanges);
-                            }
+                        let left = header_ranges[left_index];
+                        let right = header_ranges[right_index];
+                        let left_start = u64::from(left.min);
+                        let left_end = if left.min == left.max {
+                            left_start + 1
+                        } else {
+                            u64::from(left.max)
+                        };
+                        let right_start = u64::from(right.min);
+                        let right_end = if right.min == right.max {
+                            right_start + 1
+                        } else {
+                            u64::from(right.max)
+                        };
+                        if left_start < right_end && right_start < left_end {
+                            return Err(ConfigError::OverlappingHeaderRanges);
                         }
                     }
                 }
@@ -355,15 +365,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn value_range_accepts_fixed_and_inclusive_values() {
+    fn value_range_accepts_fixed_and_half_open_values() {
         let fixed = ValueRange::new(7, 7).expect("fixed range is valid");
         assert!(fixed.contains(7));
         assert!(!fixed.contains(6));
         let range = ValueRange::new(2, 5).expect("ordered range is valid");
         assert!(range.contains(2));
-        assert!(range.contains(5));
+        assert!(range.contains(4));
         assert!(!range.contains(1));
-        assert!(!range.contains(6));
+        assert!(!range.contains(5));
     }
 
     #[test]
