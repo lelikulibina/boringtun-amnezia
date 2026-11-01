@@ -539,7 +539,18 @@ mod tests {
     fn overlapping_header_ranges_are_rejected() {
         let mut awg = AmneziaConfig::default();
         awg.headers.h1 = Some(ValueRange { min: 1, max: 5 });
-        awg.headers.h2 = Some(ValueRange { min: 5, max: 9 });
+        awg.headers.h2 = Some(ValueRange { min: 4, max: 9 });
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
+        assert_eq!(config.validate(), Err(ConfigError::OverlappingHeaderRanges));
+    }
+
+    #[test]
+    fn header_ranges_cannot_overlap_implicit_standard_type_ids() {
+        let mut awg = AmneziaConfig::default();
+        awg.headers.h1 = Some(ValueRange { min: 1, max: 3 });
         let config = EngineConfig {
             mode: ProtocolMode::AmneziaWg30,
             amnezia: Some(awg),
