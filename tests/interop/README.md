@@ -8,6 +8,17 @@ CI собирает тестовый peer из закреплённой реви
 - AmneziaWG 3.0: H1-H4 randomization, S1-S4, header protection, Cookie Reply/MAC2 retry и двусторонний IPv4 transport;
 - AmneziaWG 3.1: то же плюс RandomTrailers и ContentPaddingAddition; отдельный сценарий DisableCookies=true проверяет, что Cookie Reply не отправляется даже при активном under-load.
 
+## Проверка Rust как сервера
+
+Отдельный reverse-role сценарий запускает Go peer как WireGuard-клиент, а Rust AWG tunnel — как сервер. Go helper отправляет десять корректных по MAC1, но заведомо некорректных по Noise initiation probes с loopback IP. Это исчерпывает стандартный BoringTun handshake rate budget; затем Go peer начинает настоящий handshake.
+
+Проверяется, что Rust сервер:
+- при DisableCookies=false отвечает Cookie Reply, проверяет MAC2 на повторном initiation и завершает handshake;
+- при DisableCookies=true не отправляет Cookie Reply и принимает handshake без MAC2;
+- после handshake передаёт IPv4 transport в обе стороны.
+
+Этот тест использует настоящий BoringTun RateLimiter и настоящий Go CookieGenerator; MAC1 flood helper создаёт только синтаксически корректные initiation probes с корректным MAC1.
+
 ## Детерминированный under-load
 
 Файл `underload_test_hook.go` CI временно копирует в пакет `device` закреплённого Go checkout. Он устанавливает внутренний `underLoadUntil` на 30 секунд. Это **test-only hook**: производственный Go-код не меняется в репозитории и не подменяются CookieChecker, MAC1, MAC2 или криптографические операции.
