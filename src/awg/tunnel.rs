@@ -113,8 +113,12 @@ impl AwgTunnel {
         }
         .validate()?;
 
-        let codec = AwgPacketCodec::new(config)?;
         let local_public = x25519::PublicKey::from(&static_private);
+        let codec = AwgPacketCodec::new_with_keys(
+            config,
+            local_public.as_bytes(),
+            peer_static_public.as_bytes(),
+        )?;
         // An effectively unbounded limit preserves MAC1 validation while
         // disabling cookie challenges, matching AWG DisableCookies behavior.
         let rate_limiter = if config.disable_cookies {
