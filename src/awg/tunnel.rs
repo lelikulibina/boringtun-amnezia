@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_UDP_WINDOW: usize = 500;
+const DEFAULT_TUN_MTU: usize = 1_420;
 const MIN_TRANSPORT_MESSAGE_SIZE: usize = 32;
 const MAX_UDP_PAYLOAD: usize = 65_507;
 
@@ -88,6 +89,7 @@ pub struct AwgTunnel {
     signature_packets: [Option<SignatureTemplate>; 5],
     content_padding: Option<ValueRange>,
     udp_window: usize,
+    mtu: usize,
 }
 
 impl AwgTunnel {
@@ -135,6 +137,7 @@ impl AwgTunnel {
             signature_packets: config.signature_packets.clone(),
             content_padding: config.padding.content_padding,
             udp_window: DEFAULT_UDP_WINDOW,
+            mtu: DEFAULT_TUN_MTU,
         })
     }
 
@@ -185,6 +188,7 @@ impl AwgTunnel {
             0
         } else {
             self.transport_padding_addition(available, rng)
+                .unwrap_or_else(|| calculate_padding_size(inner_packet.len(), self.mtu))
         };
 
         let mut plaintext = inner_packet.to_vec();
@@ -219,22 +223,34 @@ impl AwgTunnel {
         self.udp_window = DEFAULT_UDP_WINDOW;
     }
 
+    /// Устанавливает MTU внутреннего TUN-интерфейса для стандартного AWG padding.
+    ///
+    /// Значение 0 отключает MTU ceiling. Значения выше максимального UDP payload
+    /// отклоняются, чтобы избежать переполнения размеров пакетов.
+    pub fn set_mtu(&mut self, mtu: usize) -> Result<(), AwgTunnelError> {
+        if mtu > MAX_UDP_PAYLOAD {
+            return Err(PacketCodecError::PacketTooLarge.into());
+        }
+        self.mtu = mtu;
+        Ok(())
+    }
+
     fn transport_padding_addition<R: RngCore + CryptoRng>(
         &self,
         available: usize,
         rng: &mut R,
-    ) -> usize {
+    ) -> Option<usize> {
         if let Some(range) = self.content_padding {
             if range.min != 0 || range.max != 0 {
                 let selected = random_range(rng, range.min, range.max);
-                return (selected as usize).min(available);
+                return Some((selected as usize).min(available));
             }
         }
 
         if self.codec.random_trailers_enabled() {
-            return random_below(rng, available);
+            return Some(random_below(rng, available));
         }
-        0
+        None
     }
 
     fn preamble_packets<R: RngCore + CryptoRng>(
@@ -287,6 +303,22 @@ impl AwgTunnel {
     }
 }
 
+fn calculate_padding_size(packet_size: usize, mtu: usize) -> usize {
+    let last_unit = if mtu == 0 {
+        packet_size
+    } else if packet_size > mtu {
+        packet_size % mtu
+    } else {
+        packet_size
+    };
+
+    let mut padded_size = (last_unit + 15) & !15;
+    if mtu != 0 && padded_size > mtu {
+        padded_size = mtu;
+    }
+    padded_size - last_unit
+}
+
 fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
     if upper == 0 {
         return 0;
@@ -313,5 +345,18 @@ fn random_below_u64<R: RngCore>(rng: &mut R, upper: u64) -> u64 {
         if value >= threshold {
             return value % upper;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calculate_padding_size_matches_awg_multiple_of_sixteen_rule() {
+        assert_eq!(calculate_padding_size(20, 1_420), 12);
+        assert_eq!(calculate_padding_size(32, 1_420), 0);
+        assert_eq!(calculate_padding_size(1_430, 1_420), 6);
+        assert_eq!(calculate_padding_size(20, 0), 12);
     }
 }
