@@ -37,6 +37,7 @@
 - [x] Стандартное дополнение transport plaintext до кратности 16 с учётом MTU.
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
 - [x] Внутренний MAC2 cookie flow: расшифровка Cookie Reply, сохранение cookies, проверка исходного MAC2 и безопасный пересчёт после канонизации.
+- [x] End-to-end RateLimiter under-load test: Cookie Reply → client cookie → randomized retry → успешный handshake.
 - [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation.
 - [x] Экспортировать `update_timers` и проводить результаты timer polling через AWG framing, включая I1-I5/junk при повторном handshake.
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
@@ -72,4 +73,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает базовые AWG packet transforms, но MAC2 under-load, custom timers и внешняя проверка совместимости ещё впереди.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает базовые AWG packet transforms и внутренний MAC2 under-load retry, но внешняя Go interoperability, custom timers и keepalive padding ещё впереди.
