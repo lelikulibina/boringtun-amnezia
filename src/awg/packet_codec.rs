@@ -102,10 +102,10 @@ impl std::error::Error for PacketCodecError {}
 
 /// Кодек внешнего слоя AWG для канонических BoringTun сообщений.
 ///
-/// Реализует S1-S4 и header protection. Не реализует H-рандомизацию,
-/// junk/signature packets, content padding, random trailers или изменение
-/// поведения cookie/timers. Такие параметры отклоняются конструктором,
-/// чтобы приложение не могло случайно включить неработающую опцию.
+/// Реализует S1-S4, header protection и outer RandomTrailers для handshake
+/// и cookie reply. Transport RandomTrailers/content padding, а также I1-I5 и
+/// junk-пакеты обрабатываются высокоуровневым AwgTunnel wrapper. Произвольная
+/// H-рандомизация и кастомные таймеры пока не поддерживаются.
 #[derive(Debug, Clone)]
 pub struct AwgPacketCodec {
     padding: [usize; 4],
@@ -487,6 +487,17 @@ fn canonical_packet(kind: MessageKind) -> Vec<u8> {
         let packet = canonical_packet(MessageKind::HandshakeInitiation);
         let encoded = codec.encode(&packet, 500, &mut FixedRng(0x42)).unwrap();
         assert!(encoded.len() > codec.padding[0] + packet.len());
+        assert_eq!(codec.decode(&encoded).unwrap(), packet);
+    }
+
+    #[test]
+    fn cookie_reply_random_trailer_uses_the_default_udp_window() {
+        let mut config = base_config(false);
+        config.random_trailers = true;
+        let codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::CookieReply);
+        let encoded = codec.encode(&packet, 4_000, &mut FixedRng(0x31)).unwrap();
+        assert!(encoded.len() <= DEFAULT_UDP_WINDOW);
         assert_eq!(codec.decode(&encoded).unwrap(), packet);
     }
 
