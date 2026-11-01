@@ -501,9 +501,14 @@ mod tests {
 
     #[test]
     fn cookie_reply_random_trailer_uses_fixed_device_udp_window() {
-        let mut config = AmneziaConfig::default();
-        config.random_trailers = true;
-        config.padding.s3 = Some(12);
+        let config = AmneziaConfig {
+            random_trailers: true,
+            padding: crate::PacketPadding {
+                s3: Some(12),
+                ..crate::PacketPadding::default()
+            },
+            ..AmneziaConfig::default()
+        };
 
         let local_secret = x25519::StaticSecret::from([0x11; 32]);
         let peer_secret = x25519::StaticSecret::from([0x22; 32]);
