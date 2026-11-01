@@ -18,7 +18,8 @@
 - [x] Реэкспортировать Tunn API.
 - [x] Добавить integration tests полного WireGuard handshake/transport и AWG 3.0/3.1 tunnel flows.
 - [x] Добавить Go peer helper и CI interoperability тест для WG/AWG 3.0/3.1 против закреплённого amneziawg-go; базовые handshake и двусторонний IPv4 transport прошли.
-- [ ] Отдельно проверить upstream wireguard-go, cookie challenge/MAC2 under-load и cookie rotation.
+- [x] Проверить Cookie Reply → MAC2 retry против Go peer для WG/AWG 3.0/3.1 при принудительно активном under-load состоянии.
+- [ ] Проверить естественное достижение under-load через handshake queue, cookie rotation и upstream wireguard-go.
 
 ### Этап B — конфигурация AWG
 - [x] Модели H1-H4, S1-S4, content padding, junk, timing и 3.1 flags.
