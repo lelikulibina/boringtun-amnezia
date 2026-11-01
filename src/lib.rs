@@ -216,6 +216,13 @@ impl EngineConfig {
                     }
                 }
 
+                if config.junk.count > 64 {
+                    return Err(ConfigError::JunkPacketCountTooLarge {
+                        count: config.junk.count,
+                        max: 64,
+                    });
+                }
+
                 if config.junk.count > 0
                     && (config.junk.min_size > config.junk.max_size
                         || config.junk.max_size > 65_507)
@@ -275,6 +282,13 @@ pub enum ConfigError {
     MissingAmneziaOptions,
     /// Для чистого WireGuard переданы параметры AWG.
     AmneziaOptionsForWireGuard,
+    /// Number of junk packets exceeds the implementation safety limit.
+    JunkPacketCountTooLarge {
+        /// Requested number of packets.
+        count: u32,
+        /// Maximum supported number of packets per handshake.
+        max: u32,
+    },
     /// Junk packet size range is invalid or exceeds the UDP payload ceiling.
     InvalidJunkPacketBounds {
         /// Минимальный запрошенный размер.
@@ -304,6 +318,9 @@ impl core::fmt::Display for ConfigError {
             }
             Self::AmneziaOptionsForWireGuard => {
                 f.write_str("параметры AmneziaWG нельзя передавать в режиме WireGuard")
+            }
+            Self::JunkPacketCountTooLarge { count, max } => {
+                write!(f, "количество junk-пакетов {count} превышает лимит {max}")
             }
             Self::InvalidJunkPacketBounds { min, max } => {
                 write!(f, "некорректный размер junk-пакетов: {min}..{max}")
@@ -517,6 +534,29 @@ mod tests {
             amnezia: Some(awg),
         };
         assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[test]
+    fn junk_packet_count_is_bounded() {
+        let awg = AmneziaConfig {
+            junk: JunkConfig {
+                count: 65,
+                min_size: 10,
+                max_size: 20,
+            },
+            ..AmneziaConfig::default()
+        };
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::JunkPacketCountTooLarge {
+                count: 65,
+                max: 64
+            })
+        );
     }
 
     #[test]
