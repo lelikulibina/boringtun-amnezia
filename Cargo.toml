@@ -19,6 +19,7 @@ amneziawg-3-1 = ["amneziawg"]
 [dependencies]
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 chacha20 = "0.9.1"
+chacha20poly1305 = "0.10.1"
 blake2 = "0.10"
 zeroize = "1.8"
 # Use the published, versioned upstream library rather than unstable master.
