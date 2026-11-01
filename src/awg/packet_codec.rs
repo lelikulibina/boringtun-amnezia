@@ -1241,4 +1241,62 @@ mod tests {
             Err(PacketCodecError::InvalidDatagram)
         );
     }
+
+    #[test]
+    fn mac1_and_cookie_key_derivation_match_blake2s_reference_vectors() {
+        let public_key = [0x11; 32];
+        assert_eq!(
+            derive_mac1_key(&public_key),
+            [
+                0x10, 0xa6, 0xe4, 0x4e, 0x50, 0x59, 0xda, 0x36,
+                0x42, 0x22, 0x63, 0x66, 0xd6, 0x89, 0x88, 0x2e,
+                0x90, 0x82, 0xfe, 0xbd, 0xaa, 0x0b, 0x14, 0xdb,
+                0xaa, 0x8a, 0x0d, 0x90, 0x6b, 0xa1, 0xb0, 0xeb,
+            ]
+        );
+        assert_eq!(
+            derive_cookie_key(&public_key),
+            [
+                0x88, 0xad, 0x7c, 0xf4, 0x83, 0x3e, 0xc2, 0x7d,
+                0xaf, 0xa3, 0x93, 0xf9, 0x29, 0x8d, 0x8e, 0x75,
+                0x75, 0x98, 0x2a, 0xdc, 0xf9, 0x76, 0x86, 0x11,
+                0x05, 0x24, 0x73, 0xc6, 0x57, 0x13, 0xe1, 0xe1,
+            ]
+        );
+    }
+
+    #[test]
+    fn mac1_and_mac2_match_independent_blake2s_reference_vectors() {
+        let mut packet = vec![0u8; 148];
+        packet[..4].copy_from_slice(&1u32.to_le_bytes());
+        packet[4..8].copy_from_slice(&0x1234_5678u32.to_le_bytes());
+
+        let mac1_key = derive_mac1_key(&[0x11; 32]);
+        recompute_mac1(&mut packet, &mac1_key).unwrap();
+        assert_eq!(
+            &packet[116..132],
+            &[
+                0x64, 0x2c, 0x44, 0x8f, 0x96, 0x82, 0x82, 0x3b,
+                0x05, 0x80, 0x04, 0xba, 0x80, 0x86, 0xc5, 0xbc,
+            ]
+        );
+
+        let cookie = [0x6b; 16];
+        recompute_mac2(&mut packet, &cookie).unwrap();
+        assert_eq!(
+            &packet[132..148],
+            &[
+                0x30, 0xec, 0x6b, 0x5d, 0xe3, 0x2d, 0xf7, 0xcf,
+                0xba, 0x18, 0x7e, 0x3e, 0x88, 0xd4, 0x62, 0x4d,
+            ]
+        );
+        assert!(verify_mac1(&packet, &mac1_key));
+        assert!(verify_mac2(&packet, &cookie));
+
+        let mut tampered = packet.clone();
+        tampered[20] ^= 0x80;
+        assert!(!verify_mac1(&tampered, &mac1_key));
+        assert!(!verify_mac2(&tampered, &cookie));
+    }
+
 }
