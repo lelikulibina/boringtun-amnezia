@@ -334,6 +334,20 @@ impl AwgPacketCodec {
     }
 }
 
+fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
+    if upper == 0 {
+        return 0;
+    }
+    let upper = upper as u32;
+    let threshold = upper.wrapping_neg() % upper;
+    loop {
+        let value = rng.next_u32();
+        if value >= threshold {
+            return (value % upper) as usize;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,21 +377,7 @@ mod tests {
         }
     }
 
-    fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
-    if upper == 0 {
-        return 0;
-    }
-    let upper = upper as u32;
-    let threshold = upper.wrapping_neg() % upper;
-    loop {
-        let value = rng.next_u32();
-        if value >= threshold {
-            return (value % upper) as usize;
-        }
-    }
-}
-
-fn canonical_packet(kind: MessageKind) -> Vec<u8> {
+    fn canonical_packet(kind: MessageKind) -> Vec<u8> {
         let length = match kind {
             MessageKind::HandshakeInitiation => 148,
             MessageKind::HandshakeResponse => 92,
