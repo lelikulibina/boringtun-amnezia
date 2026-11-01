@@ -31,6 +31,8 @@ jobs:
           cargo test --workspace --no-default-features --features amneziawg-3-1
       - name: Проверить Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Проверить сборку fuzz targets
+        run: cargo check --manifest-path fuzz/Cargo.toml --bins
 
   cross-platform:
     name: Проверка на ${{ matrix.os }}
