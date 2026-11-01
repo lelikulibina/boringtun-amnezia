@@ -23,5 +23,11 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Запустить тесты
         run: cargo test --workspace --all-features
+      - name: Проверить матрицу feature flags
+        run: |
+          cargo test --workspace --no-default-features
+          cargo test --workspace --no-default-features --features wireguard
+          cargo test --workspace --no-default-features --features amneziawg-3-0
+          cargo test --workspace --no-default-features --features amneziawg-3-1
       - name: Проверить Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
