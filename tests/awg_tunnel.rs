@@ -211,9 +211,8 @@ fn default_awg_transport_padding_aligns_plaintext_to_sixteen_bytes() {
 }
 
 #[test]
-fn randomized_h1_h4_with_disable_cookies_preserve_mac1_and_transport() {
+fn randomized_h1_h4_preserve_mac1_and_transport_without_explicit_disable_flag() {
     let mut config = awg_config();
-    config.disable_cookies = true;
     config.headers.h1 = Some(ValueRange { min: 100, max: 120 });
     config.headers.h2 = Some(ValueRange { min: 200, max: 220 });
     config.headers.h3 = Some(ValueRange { min: 300, max: 320 });
