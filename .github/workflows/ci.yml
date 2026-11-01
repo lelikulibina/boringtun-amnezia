@@ -74,6 +74,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer"
           gofmt -w tests/interop/amneziawg_peer.go
           cp tests/interop/amneziawg_peer.go "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer/main.go"
+          cp tests/interop/underload_test_hook.go "$RUNNER_TEMP/amneziawg-go/device/interop_test_hook.go"
           cd "$RUNNER_TEMP/amneziawg-go"
           go build -o "$RUNNER_TEMP/awg-go-peer" ./cmd/interop-peer
       - name: Запустить двусторонние WG/AWG interoperability тесты
