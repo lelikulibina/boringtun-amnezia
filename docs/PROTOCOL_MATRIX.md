@@ -16,7 +16,7 @@
 | DisableCookies | Нет | Отклоняется как опция 3.1 | Отключает cookie challenge при сохранении MAC1; внешний Go тест подтверждает обход Cookie Reply при under-load |
 | Кастомные таймеры AWG | Стандартные WG | Не реализованы | Не реализованы; ненулевые overrides отклоняются |
 | Padding внутренних keepalive BoringTun | Стандартное поведение | Не реализовано | Не реализовано |
-| Внешняя совместимость с amneziawg-go | Handshake + Cookie Reply/MAC2 under-load + двусторонний IPv4 transport проверены | То же, с H1-H4/header protection | То же, плюс RandomTrailers/ContentPaddingAddition |
+| Внешняя совместимость с amneziawg-go | Handshake + Cookie Reply/MAC2 under-load + двусторонний IPv4 transport проверены в обе стороны | То же, с H1-H4/header protection | То же, плюс RandomTrailers/ContentPaddingAddition и DisableCookies |
 
 ## Текущие доказательства
 
@@ -25,7 +25,7 @@
 - AWG 3.1: интеграционные тесты проверяют двусторонний transport, ContentPaddingAddition, RandomTrailers, CPS и junk preambles.
 - MAC2: внутренний end-to-end тест с принудительным rate limiter проверяет Cookie Reply, сохранение cookie, рандомизированный повторный handshake и успешный ответ.
 - Decoder hardening: есть детерминированный тест коротких/случайных датаграмм и проверки ошибочных/слишком больших пакетов.
-- Go interoperability CI: pinned amneziawg-go commit `b5928efb6ca19f0153958460c3d141f04abc5c2e` успешно прошёл WG/AWG 3.0/3.1 handshake, Cookie Reply/MAC2 retry при принудительно активном under-load, AWG 3.1 DisableCookies=true (без Cookie Reply) и двусторонний IPv4 transport.
+- Go interoperability CI: pinned amneziawg-go commit `b5928efb6ca19f0153958460c3d141f04abc5c2e` успешно прошёл WG/AWG 3.0/3.1 handshake, Cookie Reply/MAC2 retry при принудительно активном Go under-load, Rust-server Cookie Reply/MAC2 после исчерпания BoringTun handshake rate budget, AWG 3.1 DisableCookies=true на обеих сторонах и двусторонний IPv4 transport.
 - CI: Linux и macOS прошли форматирование и тесты; Windows проверяется отдельно на текущем HEAD.
 
 ## Ограничения и критерии совместимости
