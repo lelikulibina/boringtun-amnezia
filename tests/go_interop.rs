@@ -292,6 +292,147 @@ fn awg_config(is_31: bool) -> AmneziaConfig {
     }
 }
 
+fn send_rust_server_network_packet(
+    socket: &UdpSocket,
+    peer_address: SocketAddr,
+    packet: Vec<u8>,
+    disable_cookies: bool,
+    cookie_challenge_received: &mut bool,
+    handshake_response_sent: &mut bool,
+) {
+    assert!(packet.len() >= 4, "Rust server emitted a truncated packet");
+    let message_type = u32::from_le_bytes(packet[..4].try_into().unwrap());
+    match message_type {
+        2 => {
+            assert_eq!(
+                *cookie_challenge_received,
+                !disable_cookies,
+                "Rust server handshake response did not match DisableCookies behavior"
+            );
+            *handshake_response_sent = true;
+        }
+        3 => {
+            assert!(
+                !disable_cookies,
+                "Rust server emitted Cookie Reply despite DisableCookies=true"
+            );
+            *cookie_challenge_received = true;
+        }
+        _ => {}
+    }
+    socket
+        .send_to(&packet, peer_address)
+        .expect("send Rust server response to Go peer");
+}
+
+fn run_rust_server_cookie_interop(disable_cookies: bool) {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust AWG server UDP socket");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let local = socket.local_addr().unwrap();
+    let rust_secret_bytes = [0x33; 32];
+    let go_secret_bytes = [0x44; 32];
+    let rust_secret = x25519::StaticSecret::from(rust_secret_bytes);
+    let go_secret = x25519::StaticSecret::from(go_secret_bytes);
+    let rust_public = x25519::PublicKey::from(&rust_secret);
+    let go_public = x25519::PublicKey::from(&go_secret);
+    let mut peer = GoPeer::spawn("wg-client", &go_secret_bytes, rust_public.as_bytes(), local);
+
+    let mut config = AmneziaConfig::default();
+    config.disable_cookies = disable_cookies;
+    let mut tunnel = AwgTunnel::new(
+        ProtocolMode::AmneziaWg31,
+        rust_secret,
+        go_public,
+        None,
+        None,
+        1,
+        &config,
+    )
+    .expect("create Rust AWG server tunnel");
+
+    // Ten valid-MAC1 but invalid-Noise messages consume the default BoringTun
+    // handshake budget. The eleventh real initiation must receive Cookie Reply
+    // unless DisableCookies selected the unbounded rate limiter.
+    peer.flood_rust_mac1();
+    let mut udp_buffer = [0u8; 2048];
+    let mut buffer = [0u8; 2048];
+    let mut rng = FixedRng(0x72);
+    for _ in 0..10 {
+        let probe = receive_udp(&socket, &mut udp_buffer);
+        match tunnel.decapsulate(Some(peer.address.ip()), &probe, &mut buffer, &mut rng) {
+            Ok(AwgTunnelOutput::Done) | Err(boringtun_amnezia::awg::tunnel::AwgTunnelError::WireGuard(_)) => {}
+            Ok(AwgTunnelOutput::WriteToNetwork(_))
+            | Ok(AwgTunnelOutput::WriteToNetworkBatch(_)) => {
+                // A probe may itself be the threshold-crossing packet. Its
+                // Cookie Reply is addressed to the temporary flood socket.
+            }
+            Ok(other) => panic!("unexpected output for invalid MAC1 probe: {other:?}"),
+            Err(other) => panic!("invalid AWG framing for valid-MAC1 probe: {other:?}"),
+        }
+    }
+
+    let go_packet = ipv4_packet(2, 1);
+    peer.send_tun_packet(&go_packet);
+    let mut cookie_challenge_received = false;
+    let mut handshake_response_sent = false;
+    let mut go_packet_received = false;
+
+    for _ in 0..8 {
+        let datagram = receive_udp(&socket, &mut udp_buffer);
+        let output = tunnel
+            .decapsulate(Some(peer.address.ip()), &datagram, &mut buffer, &mut rng)
+            .unwrap_or_else(|error| panic!("Rust AWG server rejected Go initiation: {error:?}"));
+        match output {
+            AwgTunnelOutput::WriteToNetwork(packet) => send_rust_server_network_packet(
+                &socket,
+                peer.address,
+                packet,
+                disable_cookies,
+                &mut cookie_challenge_received,
+                &mut handshake_response_sent,
+            ),
+            AwgTunnelOutput::WriteToNetworkBatch(packets) => {
+                for packet in packets {
+                    send_rust_server_network_packet(
+                        &socket,
+                        peer.address,
+                        packet,
+                        disable_cookies,
+                        &mut cookie_challenge_received,
+                        &mut handshake_response_sent,
+                    );
+                }
+            }
+            AwgTunnelOutput::WriteToTunnelV4(packet, _) => {
+                assert_eq!(packet, go_packet);
+                go_packet_received = true;
+                break;
+            }
+            AwgTunnelOutput::WriteToTunnelV6(_, _) => {
+                panic!("unexpected IPv6 packet in Rust server interoperability test")
+            }
+            AwgTunnelOutput::Done => {}
+        }
+    }
+
+    assert_eq!(
+        cookie_challenge_received,
+        !disable_cookies,
+        "Rust server Cookie Reply behavior did not match DisableCookies"
+    );
+    assert!(handshake_response_sent, "Rust server did not complete Go handshake");
+    assert!(go_packet_received, "Rust server did not receive Go IPv4 transport");
+
+    let rust_packet = ipv4_packet(1, 2);
+    let encrypted = tunnel
+        .encapsulate(&rust_packet, &mut buffer, &mut rng)
+        .expect("encrypt Rust server IPv4 packet");
+    send_awg_output(&socket, peer.address, encrypted);
+    assert_eq!(peer.receive_tun_packet(), rust_packet);
+}
+
 fn run_wireguard_interop() {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
     socket
@@ -462,4 +603,6 @@ fn interoperates_with_pinned_wireguard_and_amneziawg_go_in_both_directions() {
     run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false);
     run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false);
     run_awg_interop(ProtocolMode::AmneziaWg31, "awg31-nocookies", true, true);
+    run_rust_server_cookie_interop(false);
+    run_rust_server_cookie_interop(true);
 }
