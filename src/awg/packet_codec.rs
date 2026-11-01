@@ -7,6 +7,9 @@
 
 use crate::{AmneziaConfig, ValueRange};
 use boringtun::noise::{Packet, Tunn};
+use blake2::digest::{FixedOutput, KeyInit, Update};
+use blake2::{Blake2s256, Blake2sMac, Digest};
+use blake2::digest::consts::U16;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use rand_core::{CryptoRng, RngCore};
@@ -81,6 +84,12 @@ pub enum PacketCodecError {
     },
     /// Не удалось создать ChaCha20 cipher с переданными key/nonce.
     InvalidCipherParameters,
+    /// Для рандомизации H1/H2 необходимы ключи MAC1.
+    MissingMac1Keys,
+    /// Рандомизация H1/H2 требует DisableCookies на обеих сторонах.
+    HeaderRandomizationRequiresDisableCookies,
+    /// Не удалось вычислить MAC1 для handshake сообщения.
+    Mac1ComputationFailed,
 }
 
 impl fmt::Display for PacketCodecError {
@@ -107,6 +116,11 @@ impl fmt::Display for PacketCodecError {
                 )
             }
             Self::InvalidCipherParameters => f.write_str("неверные параметры ChaCha20"),
+            Self::MissingMac1Keys => f.write_str("для H1/H2 randomization необходимы ключи MAC1"),
+            Self::HeaderRandomizationRequiresDisableCookies => {
+                f.write_str("рандомизация H1/H2 требует DisableCookies на обоих peers")
+            }
+            Self::Mac1ComputationFailed => f.write_str("не удалось пересчитать MAC1"),
         }
     }
 }
@@ -115,44 +129,55 @@ impl std::error::Error for PacketCodecError {}
 
 /// Кодек внешнего слоя AWG для канонических BoringTun сообщений.
 ///
-/// Реализует S1-S4, header protection и outer RandomTrailers для handshake
-/// и cookie reply. Transport RandomTrailers/content padding, а также I1-I5 и
-/// junk-пакеты обрабатываются высокоуровневым AwgTunnel wrapper. Произвольная
-/// H-рандомизация и кастомные таймеры пока не поддерживаются.
+/// Реализует H1-H4, S1-S4, header protection и outer RandomTrailers для
+/// handshake/cookie. MAC1 пересчитывается при рандомизации H1/H2. Для этого
+/// режима обе стороны должны включить DisableCookies: BoringTun API не
+/// предоставляет cookie secret для пересчёта MAC2. Transport RandomTrailers,
+/// content padding, I1-I5 и junk обрабатываются AwgTunnel wrapper.
 #[derive(Debug, Clone)]
 pub struct AwgPacketCodec {
     padding: [usize; 4],
     header_protection_key: Option<[u8; 32]>,
+    header_ranges: [ValueRange; 4],
+    inbound_mac1_key: Option<[u8; 32]>,
+    outbound_mac1_key: Option<[u8; 32]>,
+    disable_cookies: bool,
     random_trailers: bool,
 }
 
 impl AwgPacketCodec {
-    /// Создаёт codec из конфигурации AWG.
+    /// Создаёт codec из конфигурации AWG без MAC1 ключей.
     ///
-    /// В текущем слое разрешены только стандартные H1-H4 значения 1,2,3,4:
-    /// это сохраняет корректность MAC1/MAC2, которые формирует BoringTun.
+    /// Подходит для стандартных H1/H2 и для рандомизации H3/H4.
+    /// Рандомизация H1/H2 требует конструктора new_with_keys.
     pub fn new(config: &AmneziaConfig) -> Result<Self, PacketCodecError> {
-        let expected_headers = [
-            (config.headers.h1, 1),
-            (config.headers.h2, 2),
-            (config.headers.h3, 3),
-            (config.headers.h4, 4),
-        ];
-        for (range, expected) in expected_headers {
-            if let Some(range) = range {
-                if range
-                    != (ValueRange {
-                        min: expected,
-                        max: expected,
-                    })
-                {
-                    return Err(PacketCodecError::UnsupportedOption(
-                        "произвольные H1-H4 требуют пересчёта MAC внутри BoringTun",
-                    ));
-                }
-            }
-        }
+        Self::new_internal(config, None, None)
+    }
 
+    /// Создаёт codec с локальным и удалённым public key для MAC1.
+    ///
+    /// H1/H2 randomization разрешается только при DisableCookies=true:
+    /// это исключает необходимость пересчитывать MAC2 с cookie secret,
+    /// который закрыт внутри BoringTun.
+    pub fn new_with_keys(
+        config: &AmneziaConfig,
+        local_public_key: &[u8; 32],
+        peer_public_key: &[u8; 32],
+    ) -> Result<Self, PacketCodecError> {
+        let inbound_mac1_key = derive_mac1_key(local_public_key);
+        let outbound_mac1_key = derive_mac1_key(peer_public_key);
+        Self::new_internal(
+            config,
+            Some(inbound_mac1_key),
+            Some(outbound_mac1_key),
+        )
+    }
+
+    fn new_internal(
+        config: &AmneziaConfig,
+        inbound_mac1_key: Option<[u8; 32]>,
+        outbound_mac1_key: Option<[u8; 32]>,
+    ) -> Result<Self, PacketCodecError> {
         if config.timings.rekey_after_time.is_some()
             || config.timings.rekey_timeout.is_some()
             || config.timings.reject_after_time.is_some()
@@ -160,6 +185,30 @@ impl AwgPacketCodec {
             || config.timings.max_handshake_attempts.is_some()
         {
             return Err(PacketCodecError::UnsupportedOption("timing overrides"));
+        }
+
+        let header_ranges = [
+            config.headers.h1.unwrap_or(ValueRange { min: 1, max: 1 }),
+            config.headers.h2.unwrap_or(ValueRange { min: 2, max: 2 }),
+            config.headers.h3.unwrap_or(ValueRange { min: 3, max: 3 }),
+            config.headers.h4.unwrap_or(ValueRange { min: 4, max: 4 }),
+        ];
+        for (index, range) in header_ranges.iter().enumerate() {
+            if range.min > range.max {
+                return Err(PacketCodecError::UnsupportedOption("обратный H1-H4 range"));
+            }
+            let canonical = index as u32 + 1;
+            if (index < 2 && !range_is_single_value(*range, canonical))
+                && !config.disable_cookies
+            {
+                return Err(PacketCodecError::HeaderRandomizationRequiresDisableCookies);
+            }
+        }
+
+        let h1_h2_randomized = !range_is_single_value(header_ranges[0], 1)
+            || !range_is_single_value(header_ranges[1], 2);
+        if h1_h2_randomized && (inbound_mac1_key.is_none() || outbound_mac1_key.is_none()) {
+            return Err(PacketCodecError::MissingMac1Keys);
         }
 
         let padding = [
@@ -185,6 +234,10 @@ impl AwgPacketCodec {
         Ok(Self {
             padding,
             header_protection_key,
+            header_ranges,
+            inbound_mac1_key,
+            outbound_mac1_key,
+            disable_cookies: config.disable_cookies,
             random_trailers: config.random_trailers,
         })
     }
