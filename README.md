@@ -11,6 +11,7 @@ Rust-проект для поддержки стандартного WireGuard �
 - **H1/H2 и MAC2:** исходные MAC1/MAC2 проверяются до канонизации заголовка; при валидном cookie MAC1/MAC2 пересчитываются для BoringTun. Cookie Reply обрабатываются через XChaCha20-Poly1305 и ключи, выведенные из публичных ключей peers. Это устраняет необходимость включать DisableCookies только ради H1/H2 randomization; внешняя проверка under-load с Go ещё требуется.
 - **Стандартное AWG padding:** при выключенных ContentPaddingAddition/RandomTrailers transport plaintext дополняется до кратности 16 с учётом MTU. MTU по умолчанию 1420; его можно изменить через `AwgTunnel::set_mtu`.
 - **Защитная валидация:** ограничены размер CPS-тегов и количество/размер junk-пакетов; некорректные диапазоны отклоняются до отправки. HeaderProtectionKey скрывается в Debug и очищается через `zeroize` при уничтожении конфигурации/кодека.
+- **Go interoperability:** GitHub Actions собирает эталонный peer из amneziawg-go commit `b5928efb6ca19f0153958460c3d141f04abc5c2e`; двусторонние handshake и IPv4 transport для WG, AWG 3.0 и AWG 3.1 прошли CI. Проверка cookie challenge under-load и cookie rotation с Go ещё впереди.
 - **Ограничения:** кастомные таймеры и padding для внутренних keepalive-пакетов BoringTun пока не реализованы.
 - **Таймеры:** `AwgTunnel::update_timers` предоставляет хосту polling BoringTun для rekey, повторных handshake и persistent keepalive; пока используются стандартные интервалы BoringTun, а AWG overrides отклоняются.
 - **Сетевой/TUN стек:** не входит в библиотечную обёртку.
