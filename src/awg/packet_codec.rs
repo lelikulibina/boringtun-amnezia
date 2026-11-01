@@ -558,7 +558,7 @@ impl AwgPacketCodec {
 
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
-        let plaintext = cipher
+        let mut plaintext = cipher
             .decrypt(
                 XNonce::from_slice(&packet[8..32]),
                 Payload {
@@ -571,6 +571,7 @@ impl AwgPacketCodec {
             .as_slice()
             .try_into()
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        plaintext.zeroize();
         self.read_cookie = Some(cookie);
         self.last_inbound_handshake_context = None;
         Ok(())
@@ -593,7 +594,7 @@ impl AwgPacketCodec {
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
         let nonce = XNonce::from_slice(&packet[8..32]);
-        let plaintext = cipher
+        let mut plaintext = cipher
             .decrypt(
                 nonce,
                 Payload {
@@ -615,6 +616,7 @@ impl AwgPacketCodec {
             .as_slice()
             .try_into()
             .map_err(|_| PacketCodecError::CookieDecryptionFailed)?;
+        plaintext.zeroize();
         self.write_cookie = Some(cookie);
         self.last_outbound_handshake_context = None;
         Ok(())
