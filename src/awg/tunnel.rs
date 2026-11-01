@@ -17,6 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const DEFAULT_UDP_WINDOW: usize = 500;
 const DEFAULT_TUN_MTU: usize = 1_420;
 const MIN_TRANSPORT_MESSAGE_SIZE: usize = 32;
+const COOKIE_REPLY_MESSAGE_SIZE: usize = 64;
+const COOKIE_REPLY_MESSAGE_TYPE: u32 = 3;
 const MAX_UDP_PAYLOAD: usize = 65_507;
 
 /// Результат обработки AWG-туннеля.
@@ -239,8 +241,9 @@ impl AwgTunnel {
             // associated data contains the randomized MAC1. The codec has
             // already decrypted and retained this cookie; it will attach
             // MAC2 to the next initiation. Do not pass this reply to BoringTun.
-            if canonical.len() == 64
-                && u32::from_le_bytes(canonical[..4].try_into().unwrap()) == 3
+            if canonical.len() == COOKIE_REPLY_MESSAGE_SIZE
+                && u32::from_le_bytes(canonical[..4].try_into().unwrap())
+                    == COOKIE_REPLY_MESSAGE_TYPE
             {
                 return Ok(AwgTunnelOutput::Done);
             }
