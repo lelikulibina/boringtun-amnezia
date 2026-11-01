@@ -17,7 +17,8 @@
 - [x] Сохранить лицензию BoringTun.
 - [x] Реэкспортировать Tunn API.
 - [x] Добавить integration tests полного WireGuard handshake/transport и AWG 3.0/3.1 tunnel flows.
-- [ ] Добавить interoperability tests с внешним wireguard-go процессом.
+- [x] Добавить Go peer helper и CI interoperability тест для WG/AWG 3.0/3.1 против закреплённого amneziawg-go; базовые handshake и двусторонний IPv4 transport прошли.
+- [ ] Отдельно проверить upstream wireguard-go, cookie challenge/MAC2 under-load и cookie rotation.
 
 ### Этап B — конфигурация AWG
 - [x] Модели H1-H4, S1-S4, content padding, junk, timing и 3.1 flags.
@@ -39,6 +40,7 @@
 - [x] DisableCookies через отключение rate-limit cookie challenges при сохранении MAC1 validation.
 - [x] Внутренний MAC2 cookie flow: расшифровка Cookie Reply, сохранение cookies, проверка исходного MAC2 и безопасный пересчёт после канонизации.
 - [x] Независимые BLAKE2s golden vectors для MAC1/cookie key derivation и MAC1/MAC2 message tags.
+- [x] Базовая двусторонняя interoperability проверка handshake/IPv4 transport AWG 3.0 и 3.1 против закреплённого amneziawg-go.
 - [ ] Golden vectors и differential-проверка полного AWG packet framing непосредственно с закреплённой Go-реализацией.
 - [x] End-to-end RateLimiter under-load test: Cookie Reply → client cookie → randomized retry → успешный handshake.
 - [ ] Differential и двусторонняя Go interoperability проверка MAC2 under-load/cookie rotation (внутренний Rust↔Rust under-load тест уже есть, но он не доказывает совместимость с Go).
@@ -50,7 +52,8 @@
 
 ### Этап D — AmneziaWG 3.1
 - [x] Базовые механизмы 3.1 RandomTrailers и DisableCookies.
-- [ ] Differential tests на точной версии amneziawg-go 3.1.
+- [x] Базовые двусторонние handshake/transport тесты AWG 3.0/3.1 на закреплённой версии amneziawg-go.
+- [ ] Differential tests и golden vectors на точной версии amneziawg-go 3.1.
 - [ ] Совместимость с cookie/under-load и edge-case сценариями.
 
 ### Этап E — интеграция и hardening
