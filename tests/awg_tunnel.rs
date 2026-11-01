@@ -106,22 +106,14 @@ fn establish_pair(
     rng: &mut FixedRng,
     buffer: &mut [u8],
 ) {
-    let initiation_batch = network_batch(
-        initiator
-            .initiate_handshake(buffer, false, rng)
-            .unwrap(),
-    );
+    let initiation_batch = network_batch(initiator.initiate_handshake(buffer, false, rng).unwrap());
     let initiation = initiation_batch.last().expect("handshake datagram exists");
     let response = network_packet(
         responder
             .decapsulate(None, initiation, buffer, rng)
             .unwrap(),
     );
-    let keepalive = network_packet(
-        initiator
-            .decapsulate(None, &response, buffer, rng)
-            .unwrap(),
-    );
+    let keepalive = network_packet(initiator.decapsulate(None, &response, buffer, rng).unwrap());
     assert_eq!(
         responder
             .decapsulate(None, &keepalive, buffer, rng)
