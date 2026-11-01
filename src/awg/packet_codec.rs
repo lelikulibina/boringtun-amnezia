@@ -148,9 +148,6 @@ impl AwgPacketCodec {
         {
             return Err(PacketCodecError::UnsupportedOption("timing overrides"));
         }
-        if config.disable_cookies {
-            return Err(PacketCodecError::UnsupportedOption("DisableCookies"));
-        }
 
         let padding = [
             usize::from(config.padding.s1.unwrap_or(0)),
