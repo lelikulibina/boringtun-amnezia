@@ -175,7 +175,6 @@ impl fmt::Debug for AwgPacketCodec {
                 "outbound_mac1_key",
                 &self.outbound_mac1_key.as_ref().map(|_| "[REDACTED]"),
             )
-            .field("disable_cookies", &self.disable_cookies)
             .field("random_trailers", &self.random_trailers)
             .finish()
     }
