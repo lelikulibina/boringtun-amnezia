@@ -1,0 +1,22 @@
+[package]
+name = "boringtun-amnezia"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "BSD-3-Clause"
+description = "WireGuard and AmneziaWG protocol implementation in Rust"
+
+[lib]
+name = "boringtun_amnezia"
+path = "src/lib.rs"
+
+[features]
+default = ["wireguard", "amneziawg"]
+wireguard = []
+amneziawg = ["wireguard"]
+amneziawg-3-0 = ["amneziawg"]
+amneziawg-3-1 = ["amneziawg"]
+
+[dependencies]
+
+[dev-dependencies]
