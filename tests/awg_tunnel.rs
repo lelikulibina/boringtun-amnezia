@@ -1,0 +1,133 @@
+use boringtun_amnezia::awg::tunnel::{AwgTunnel, AwgTunnelOutput};
+use boringtun_amnezia::wireguard::x25519;
+use boringtun_amnezia::{AmneziaConfig, PacketPadding};
+use rand_core::RngCore;
+use std::net::Ipv4Addr;
+
+struct FixedRng(u8);
+
+impl RngCore for FixedRng {
+    fn next_u32(&mut self) -> u32 {
+        u32::from(self.0) * 0x0101_0101
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        u64::from(self.next_u32()) | (u64::from(self.next_u32()) << 32)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        for byte in dest {
+            *byte = self.0;
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+fn awg_config() -> AmneziaConfig {
+    let mut config = AmneziaConfig::default();
+    config.headers.header_protection_key = Some([0x66; 32]);
+    config.padding = PacketPadding {
+        s1: Some(12),
+        s2: Some(12),
+        s3: Some(12),
+        s4: Some(12),
+        content_padding: None,
+    };
+    config
+}
+
+fn tunnel_pair() -> (AwgTunnel, AwgTunnel) {
+    let a_secret = x25519::StaticSecret::from([0x11; 32]);
+    let b_secret = x25519::StaticSecret::from([0x22; 32]);
+    let a_public = x25519::PublicKey::from(&a_secret);
+    let b_public = x25519::PublicKey::from(&b_secret);
+    let config = awg_config();
+
+    (
+        AwgTunnel::new(a_secret, b_public, None, None, 1, &config).unwrap(),
+        AwgTunnel::new(b_secret, a_public, None, None, 2, &config).unwrap(),
+    )
+}
+
+fn network_packet(output: AwgTunnelOutput) -> Vec<u8> {
+    match output {
+        AwgTunnelOutput::WriteToNetwork(packet) => packet,
+        other => panic!("ожидался исходящий UDP datagram, получено: {other:?}"),
+    }
+}
+
+fn ipv4_packet(source: [u8; 4], destination: [u8; 4]) -> Vec<u8> {
+    let mut packet = vec![0u8; 20];
+    packet[0] = 0x45;
+    packet[2..4].copy_from_slice(&20u16.to_be_bytes());
+    packet[8] = 64;
+    packet[9] = 17;
+    packet[12..16].copy_from_slice(&source);
+    packet[16..20].copy_from_slice(&destination);
+    packet
+}
+
+#[test]
+fn awg_framed_handshake_and_transport_work_in_both_directions() {
+    let (mut initiator, mut responder) = tunnel_pair();
+    let mut rng = FixedRng(0x5a);
+    let mut buffer = [0u8; 2048];
+
+    let initiation = network_packet(
+        initiator
+            .initiate_handshake(&mut buffer, false, &mut rng)
+            .unwrap(),
+    );
+    let response = network_packet(
+        responder
+            .decapsulate(None, &initiation, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    let keepalive = network_packet(
+        initiator
+            .decapsulate(None, &response, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    assert_eq!(
+        responder
+            .decapsulate(None, &keepalive, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::Done
+    );
+
+    let a_to_b = ipv4_packet([10, 0, 0, 1], [10, 0, 0, 2]);
+    let encrypted = network_packet(
+        initiator
+            .encapsulate(&a_to_b, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    assert_eq!(
+        responder
+            .decapsulate(None, &encrypted, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::WriteToTunnelV4(
+            a_to_b,
+            Ipv4Addr::new(10, 0, 0, 1)
+        )
+    );
+
+    let b_to_a = ipv4_packet([10, 0, 0, 2], [10, 0, 0, 1]);
+    let encrypted = network_packet(
+        responder
+            .encapsulate(&b_to_a, &mut buffer, &mut rng)
+            .unwrap(),
+    );
+    assert_eq!(
+        initiator
+            .decapsulate(None, &encrypted, &mut buffer, &mut rng)
+            .unwrap(),
+        AwgTunnelOutput::WriteToTunnelV4(
+            b_to_a,
+            Ipv4Addr::new(10, 0, 0, 2)
+        )
+    );
+}
