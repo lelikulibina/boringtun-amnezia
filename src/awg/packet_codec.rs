@@ -13,6 +13,7 @@ use rand_core::{CryptoRng, RngCore};
 use std::fmt;
 
 const MAX_UDP_PAYLOAD: usize = 65_507;
+const DEFAULT_UDP_WINDOW: usize = 500;
 const HEADER_PROTECTION_NONCE_SIZE: usize = 12;
 const TRANSPORT_HEADER_SIZE: usize = 16;
 
@@ -194,7 +195,12 @@ impl AwgPacketCodec {
         let padding_len = self.padding[kind.index()];
         let message_len = canonical_packet.len();
         let trailer_len = if self.random_trailers && kind != MessageKind::Transport {
-            let space = udp_window.saturating_sub(padding_len + message_len);
+            let window = if kind == MessageKind::CookieReply {
+                DEFAULT_UDP_WINDOW
+            } else {
+                udp_window
+            };
+            let space = window.saturating_sub(padding_len + message_len);
             random_below(rng, space)
         } else {
             0
