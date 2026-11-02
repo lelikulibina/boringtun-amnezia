@@ -802,6 +802,19 @@ fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
     }
 }
 
+fn random_below_u64<R: RngCore>(rng: &mut R, upper: u64) -> u64 {
+    if upper <= 1 {
+        return 0;
+    }
+    let threshold = upper.wrapping_neg() % upper;
+    loop {
+        let value = rng.next_u64();
+        if value >= threshold {
+            return value % upper;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
