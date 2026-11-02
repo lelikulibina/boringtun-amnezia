@@ -688,6 +688,10 @@ mod tests {
     #[test]
     fn awg_31_flags_are_accepted_in_awg_31() {
         let awg = AmneziaConfig {
+            padding: PacketPadding {
+                content_padding: Some(ValueRange { min: 1, max: 4 }),
+                ..PacketPadding::default()
+            },
             random_trailers: true,
             disable_cookies: true,
             ..AmneziaConfig::default()
