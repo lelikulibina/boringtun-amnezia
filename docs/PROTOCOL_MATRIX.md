@@ -25,6 +25,7 @@
 - AWG 3.1: интеграционные тесты и внешний двусторонний тест с закреплённым amneziawg-go проверяют transport, ContentPaddingAddition, RandomTrailers, DisableCookies, cookie rotation, CPS и junk preambles.
 - MAC2: внутренний end-to-end тест с принудительным rate limiter проверяет Cookie Reply, сохранение cookie, рандомизированный повторный handshake и успешный ответ.
 - Decoder hardening: есть детерминированный тест коротких/случайных датаграмм и проверки ошибочных/слишком больших пакетов.
+- Golden framing vector: детерминированный H4/S4 transport fixture фиксирует точные байты внешнего заголовка, padding и каноническое восстановление; MAC1/MAC2 и key derivation закреплены независимыми BLAKE2s vectors.
 - Go interoperability CI: pinned amneziawg-go commit `b5928efb6ca19f0153958460c3d141f04abc5c2e` успешно прошёл WG/AWG 3.0/3.1 handshake, Cookie Reply/MAC2 retry при принудительно активном Go under-load, Rust-server Cookie Reply/MAC2 после исчерпания BoringTun handshake rate budget, AWG 3.1 DisableCookies=true и принудительную ротацию cookie secret с повторным MAC2 challenge.
 - CI run `41400227444`: Linux, macOS и Windows прошли форматирование и тесты; отдельный Go interoperability job также завершился успешно.
 
