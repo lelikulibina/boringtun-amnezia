@@ -25,7 +25,7 @@
 - AWG 3.1: интеграционные тесты и внешний двусторонний тест с закреплённым amneziawg-go проверяют transport, ContentPaddingAddition, RandomTrailers, DisableCookies, cookie rotation, CPS и junk preambles.
 - MAC2: внутренний end-to-end тест с принудительным rate limiter проверяет Cookie Reply, сохранение cookie, рандомизированный повторный handshake и успешный ответ.
 - Decoder hardening: есть детерминированный тест коротких/случайных датаграмм и проверки ошибочных/слишком больших пакетов.
-- Golden framing vector: детерминированный H4/S4 transport fixture фиксирует точные байты внешнего заголовка, padding и каноническое восстановление; MAC1/MAC2 и key derivation закреплены независимыми BLAKE2s vectors.
+- Golden framing vector: детерминированные H3/S3 Cookie Reply и H4/S4 transport fixtures фиксирует точные байты внешнего заголовка, padding и каноническое восстановление; MAC1/MAC2 и key derivation закреплены независимыми BLAKE2s vectors.
 - Go interoperability CI: закреплённые upstream `wireguard-go` и `amneziawg-go` успешно прошли двусторонние WG/AWG 3.0/3.1 handshake и IPv4 transport; проверены Cookie Reply/MAC2 retry, AWG 3.1 DisableCookies и принудительная ротация cookie secret.
 - CI run `41401197459` (PR #27): Linux, macOS и Windows прошли; Go job также подтвердил live handshake queue stress на запущенном Device и естественное истечение CookieRefreshTime с повторным Cookie Reply/MAC2 retry.
 
