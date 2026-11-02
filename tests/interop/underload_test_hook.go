@@ -2,11 +2,14 @@
 // It activates the real under-load branch without flooding the UDP socket.
 package device
 
-import "time"
+import (
+	"runtime"
+	"time"
+)
 
 // ForceUnderLoadForInterop activates the normal cookie challenge path.
 func ForceUnderLoadForInterop(device *Device) {
-	device.rate.underLoadUntil.Store(time.Now().Add(30 * time.Second).UnixNano())
+	device.rate.underLoadUntil.Store(time.Now().Add(5 * time.Minute).UnixNano())
 }
 
  
@@ -21,6 +24,30 @@ func VerifyNaturalUnderLoadThresholdForInterop() bool {
 		probe.queue.handshake.c <- QueueHandshakeElement{}
 	}
 	return probe.IsUnderLoad()
+}
+
+// StressLiveHandshakeQueueForInterop fills the handshake queue on a running
+// Device while its real RoutineHandshake workers are active. Restricting the
+// scheduler to one P prevents those workers from draining the queue before the
+// production IsUnderLoad predicate observes its threshold.
+func StressLiveHandshakeQueueForInterop(device *Device) bool {
+	previousProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previousProcs)
+
+	threshold := QueueHandshakeSize / 8
+	for i := 0; i < threshold; i++ {
+		buffer := device.GetMessageBuffer()
+		select {
+		case device.queue.handshake.c <- QueueHandshakeElement{
+			msgType: MessageUnknownType,
+			buffer:  buffer,
+		}:
+		default:
+			device.PutMessageBuffer(buffer)
+			return false
+		}
+	}
+	return device.IsUnderLoad()
 }
 
 // RotateCookieSecretForInterop expires the current cookie secret. The next
