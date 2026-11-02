@@ -25,10 +25,11 @@
 - AWG 3.1: интеграционные тесты и внешний двусторонний тест с закреплённым amneziawg-go проверяют transport, ContentPaddingAddition, RandomTrailers, DisableCookies, cookie rotation, CPS и junk preambles.
 - MAC2: внутренний end-to-end тест с принудительным rate limiter проверяет Cookie Reply, сохранение cookie, рандомизированный повторный handshake и успешный ответ.
 - Decoder hardening: есть детерминированный тест коротких/случайных датаграмм и проверки ошибочных/слишком больших пакетов.
-- Golden framing vector: детерминированные H3/S3 Cookie Reply и H4/S4 transport fixtures фиксируют точные байты внешнего заголовка, padding и каноническое восстановление; MAC1/MAC2 и key derivation закреплены независимыми BLAKE2s vectors.
+- Golden vectors: детерминированные H1/H2 fixtures фиксируют MAC1 и ChaCha20 header protection handshake; H3/S3 Cookie Reply и H4/S4 transport fixtures фиксируют точные байты framing, padding и каноническое восстановление. MAC1/MAC2 и key derivation также закреплены независимыми BLAKE2s vectors.
+- CPS: composite golden fixture проверяет все восемь тегов b/t/r/rc/rd/d/ds/dz с фиксированными RNG и timestamp; полноценное differential-сравнение parser/renderer с upstream Go ещё не выполнено.
 - Go interoperability CI: закреплённые upstream `wireguard-go` и `amneziawg-go` успешно прошли двусторонние WG/AWG 3.0/3.1 handshake и IPv4 transport; проверены Cookie Reply/MAC2 retry, AWG 3.1 DisableCookies и принудительная ротация cookie secret.
 - CI run `41401197459` (PR #27): Linux, macOS и Windows прошли; Go job также подтвердил live handshake queue stress на запущенном Device и естественное истечение CookieRefreshTime с повторным Cookie Reply/MAC2 retry.
 
 ## Ограничения и критерии совместимости
 
-Двусторонние тесты Rust↔upstream wireguard-go и Rust↔amneziawg-go проходят для WG/AWG 3.0/3.1. Дополнительно проверены live handshake queue stress и естественное истечение cookie secret по таймеру. Текущие golden fixtures покрывают H3/S3 Cookie Reply и H4/S4 transport; полные differential/golden vectors для всех вариантов framing и CPS ещё нужны. Ненулевые пользовательские таймеры и padding автоматически генерируемых BoringTun keepalive пока явно не поддерживаются.
+Двусторонние тесты Rust↔upstream wireguard-go и Rust↔amneziawg-go проходят для WG/AWG 3.0/3.1. Дополнительно проверены live handshake queue stress и естественное истечение cookie secret по таймеру. Текущие golden fixtures покрывают H1/H2 handshake, H3/S3 Cookie Reply и H4/S4 transport; composite CPS vector покрывает все восемь тегов, но differential-сравнение с upstream Go и остальные edge cases ещё нужны. Ненулевые пользовательские таймеры и padding автоматически генерируемых BoringTun keepalive пока явно не поддерживаются.
