@@ -28,7 +28,7 @@
 
 ### Этап B — конфигурация AWG
 - [x] Модели H1-H4, S1-S4, content padding, junk, timing и 3.1 flags.
-- [x] Полуоткрытые диапазоны и проверка пересечений H1-H4 с default type IDs.
+- [x] Включительные диапазоны по семантике upstream и проверка пересечений H1-H4 с default type IDs.
 - [x] Валидация требования S1-S4 >= 12 при ненулевом HeaderProtectionKey.
 - [x] Ограничение Jc, проверка Jmin/Jmax и UDP payload ceiling.
 - [x] CPS parser/renderer восьми Go-тегов; отрицательные и чрезмерные размеры отклоняются.
