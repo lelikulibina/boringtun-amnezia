@@ -4,8 +4,8 @@ CI собирает тестовый peer из закреплённой реви
 
 ## Что проверяется
 
-- стандартный WireGuard: handshake, Cookie Reply/MAC2 retry при активном under-load, двусторонний IPv4 transport;
-- AmneziaWG 3.0: H1-H4 randomization, S1-S4, header protection, Cookie Reply/MAC2 retry и двусторонний IPv4 transport;
+- стандартный WireGuard: двусторонний handshake, Cookie Reply/MAC2 retry при активном under-load, двусторонний IPv4 transport против upstream wireguard-go;
+- AmneziaWG 3.0: H1-H4 randomization, S1-S4, header protection, Cookie Reply/MAC2 retry и двусторонний IPv4 transport против upstream amneziawg-go;
 - AmneziaWG 3.1: то же плюс RandomTrailers и ContentPaddingAddition; отдельные сценарии проверяют DisableCookies=true и ротацию cookie secret между первым Cookie Reply и MAC2 retry (старый MAC2 отвергается, новый Cookie Reply принимается).
 
 ## Проверка Rust как сервера
