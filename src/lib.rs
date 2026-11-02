@@ -41,12 +41,12 @@ pub enum ProtocolMode {
 
 /// Диапазон целочисленного параметра AWG.
 ///
-/// Верхняя граница исключительная, кроме фиксированного значения min == max.
+/// Обе границы включительные; min == max задаёт фиксированное значение.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ValueRange {
     /// Нижняя включительная граница.
     pub min: u32,
-    /// Верхняя исключительная граница; при min == max задаёт фиксированное значение.
+    /// Верхняя включительная граница.
     pub max: u32,
 }
 
@@ -59,14 +59,14 @@ impl ValueRange {
         Ok(Self { min, max })
     }
 
-    /// Проверяет, входит ли значение в полуоткрытый диапазон.
+    /// Проверяет, входит ли значение во включительный диапазон.
     ///
     /// При min == max диапазон представляет единственное фиксированное значение.
     pub fn contains(self, value: u32) -> bool {
         if self.min == self.max {
             value == self.min
         } else {
-            (self.min..self.max).contains(&value)
+            (self.min..=self.max).contains(&value)
         }
     }
 }
@@ -255,17 +255,9 @@ impl EngineConfig {
                         let left = header_ranges[left_index];
                         let right = header_ranges[right_index];
                         let left_start = u64::from(left.min);
-                        let left_end = if left.min == left.max {
-                            left_start + 1
-                        } else {
-                            u64::from(left.max)
-                        };
+                        let left_end = u64::from(left.max) + 1;
                         let right_start = u64::from(right.min);
-                        let right_end = if right.min == right.max {
-                            right_start + 1
-                        } else {
-                            u64::from(right.max)
-                        };
+                        let right_end = u64::from(right.max) + 1;
                         if left_start < right_end && right_start < left_end {
                             return Err(ConfigError::OverlappingHeaderRanges);
                         }
@@ -434,15 +426,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn value_range_accepts_fixed_and_half_open_values() {
+    fn value_range_accepts_fixed_and_inclusive_values() {
         let fixed = ValueRange::new(7, 7).expect("fixed range is valid");
         assert!(fixed.contains(7));
         assert!(!fixed.contains(6));
         let range = ValueRange::new(2, 5).expect("ordered range is valid");
         assert!(range.contains(2));
         assert!(range.contains(4));
+        assert!(range.contains(5));
         assert!(!range.contains(1));
-        assert!(!range.contains(5));
+        assert!(!range.contains(6));
     }
 
     #[test]
