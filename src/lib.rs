@@ -310,9 +310,24 @@ impl EngineConfig {
                 }
 
                 if self.mode == ProtocolMode::AmneziaWg30
-                    && (config.random_trailers || config.disable_cookies)
+                    && (config.random_trailers
+                        || config.disable_cookies
+                        || config.padding.content_padding.is_some())
                 {
                     return Err(ConfigError::FeatureRequiresAmneziaWg31);
+                }
+
+                if [
+                    config.timings.rekey_after_time,
+                    config.timings.rekey_timeout,
+                    config.timings.reject_after_time,
+                    config.timings.keepalive_timeout,
+                    config.timings.max_handshake_attempts,
+                ]
+                .into_iter()
+                .any(|timing| timing.is_some())
+                {
+                    return Err(ConfigError::UnsupportedTimingOverrides);
                 }
 
                 match self.mode {
@@ -365,6 +380,8 @@ pub enum ConfigError {
     HeaderProtectionRequiresAllPaddingAtLeast12,
     /// Параметр доступен только в режиме AmneziaWG 3.1.
     FeatureRequiresAmneziaWg31,
+    /// AWG timer overrides пока не поддерживаются BoringTun wrapper.
+    UnsupportedTimingOverrides,
     /// Запрошенный протокольный режим отключён при сборке crate.
     FeatureNotEnabled(&'static str),
 }
@@ -396,7 +413,12 @@ impl core::fmt::Display for ConfigError {
                 f.write_str("защита заголовков требует S1, S2, S3 и S4 не меньше 12 байт")
             }
             Self::FeatureRequiresAmneziaWg31 => {
-                f.write_str("random_trailers и disable_cookies доступны только в AmneziaWG 3.1")
+                f.write_str(
+                    "random_trailers, disable_cookies и content_padding доступны только в AmneziaWG 3.1",
+                )
+            }
+            Self::UnsupportedTimingOverrides => {
+                f.write_str("настройка AWG timers пока не поддерживается этим движком")
             }
             Self::FeatureNotEnabled(feature) => {
                 write!(f, "сборка не включает поддержку {feature}")
@@ -600,6 +622,43 @@ mod tests {
             amnezia: Some(awg),
         };
         assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[cfg(feature = "amneziawg-3-0")]
+    #[test]
+    fn content_padding_addition_is_rejected_in_awg_30() {
+        let awg = AmneziaConfig {
+            padding: PacketPadding {
+                content_padding: Some(ValueRange { min: 1, max: 4 }),
+                ..PacketPadding::default()
+            },
+            ..AmneziaConfig::default()
+        };
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg30,
+            amnezia: Some(awg),
+        };
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::FeatureRequiresAmneziaWg31)
+        );
+    }
+
+    #[cfg(feature = "amneziawg-3-1")]
+    #[test]
+    fn unsupported_timer_overrides_are_rejected_in_awg_31() {
+        let awg = AmneziaConfig {
+            timings: TimingConfig {
+                rekey_after_time: Some(ValueRange { min: 10, max: 20 }),
+                ..TimingConfig::default()
+            },
+            ..AmneziaConfig::default()
+        };
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg31,
+            amnezia: Some(awg),
+        };
+        assert_eq!(config.validate(), Err(ConfigError::UnsupportedTimingOverrides));
     }
 
     #[cfg(feature = "amneziawg-3-0")]
