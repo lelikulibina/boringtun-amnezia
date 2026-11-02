@@ -1271,7 +1271,7 @@ mod tests {
     #[test]
     fn h3_cookie_reply_matches_golden_wire_vector() {
         let mut config = base_config(false);
-        config.headers.h3 = Some(ValueRange { min: 200, max: 201 });
+        config.headers.h3 = Some(ValueRange { min: 200, max: 200 });
         let mut codec = AwgPacketCodec::new(&config).unwrap();
         let packet = canonical_packet(MessageKind::CookieReply);
 
