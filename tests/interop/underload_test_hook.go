@@ -31,26 +31,30 @@ func VerifyNaturalUnderLoadThresholdForInterop() bool {
 // scheduler to one P prevents those workers from draining the queue before the
 // production IsUnderLoad predicate observes its threshold.
 func StressLiveHandshakeQueueForInterop(device *Device) bool {
+	threshold := QueueHandshakeSize / 8
+	buffers := make([]*[MaxMessageSize]byte, threshold)
+	for i := range buffers {
+		buffers[i] = device.GetMessageBuffer()
+	}
+
+	// Allocate buffers before limiting the scheduler: sync.Pool operations can
+	// yield and let the live workers drain the queue during the critical burst.
 	previousProcs := runtime.GOMAXPROCS(1)
 	defer runtime.GOMAXPROCS(previousProcs)
 
-	threshold := QueueHandshakeSize / 8
-	for i := 0; i < threshold; i++ {
-		buffer := device.GetMessageBuffer()
+	queued := 0
+	for _, buffer := range buffers {
 		select {
 		case device.queue.handshake.c <- QueueHandshakeElement{
 			msgType: 0,
 			buffer:  buffer,
 		}:
+			queued++
 		default:
 			device.PutMessageBuffer(buffer)
-			return false
-		}
-		if device.IsUnderLoad() {
-			return true
 		}
 	}
-	return false
+	return queued == threshold && device.IsUnderLoad()
 }
 
 // RotateCookieSecretForInterop expires the current cookie secret. The next
