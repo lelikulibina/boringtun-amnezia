@@ -270,8 +270,7 @@ fn receive_awg_ipv4(
                     "decode Go AWG packet failed ({} bytes, prefix {prefix}): {error:?}",
                     datagram.len()
                 )
-            })
-        {
+            }) {
             AwgTunnelOutput::WriteToTunnelV4(packet, _) => return packet,
             AwgTunnelOutput::WriteToNetwork(packet) => {
                 socket.send_to(&packet, peer).expect("send AWG response");
