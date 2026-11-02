@@ -658,7 +658,10 @@ mod tests {
             mode: ProtocolMode::AmneziaWg31,
             amnezia: Some(awg),
         };
-        assert_eq!(config.validate(), Err(ConfigError::UnsupportedTimingOverrides));
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::UnsupportedTimingOverrides)
+        );
     }
 
     #[cfg(feature = "amneziawg-3-0")]
