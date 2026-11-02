@@ -190,6 +190,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Go natural under-load queue threshold check failed")
 			os.Exit(1)
 		}
+		if *mode == "awg31-livequeue" && !device.StressLiveHandshakeQueueForInterop(dev) {
+			fmt.Fprintln(os.Stderr, "Go live handshake queue did not reach the under-load threshold")
+			os.Exit(1)
+		}
 		device.ForceUnderLoadForInterop(dev)
 	}
 
