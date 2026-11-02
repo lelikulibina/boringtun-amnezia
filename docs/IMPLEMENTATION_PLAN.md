@@ -23,7 +23,7 @@
 - [x] Проверить пороговый предикат Go IsUnderLoad() на изолированной handshake queue, заполненной до QueueHandshakeSize/8.
 - [x] Проверить Rust server-side Cookie Reply/MAC2 против Go client после 10 валидных MAC1 probes с некорректным Noise payload; подтвердить DisableCookies=true без Cookie Reply.
 - [x] Проверить принудительную ротацию Go cookie secret: старый MAC2 отвергается, новый Cookie Reply и повторный MAC2 завершают handshake.
-- [ ] Проверить live Go handshake queue stress, естественное истечение CookieRefreshTime и upstream wireguard-go.
+- [ ] Проверить live Go handshake queue stress и естественное истечение CookieRefreshTime.
 
 ### Этап B — конфигурация AWG
 - [x] Модели H1-H4, S1-S4, content padding, junk, timing и 3.1 flags.
@@ -54,12 +54,12 @@
 - [ ] Поддержка random trailers для внутренних keepalive-пакетов BoringTun.
 - [ ] Кастомные таймеры.
 - [x] Регрессионный тест ложного handshake-кандидата, который не должен перехватывать transport datagram.
-- [ ] Golden vectors и двусторонняя совместимость AWG 3.0 Rust ↔ Go.
+- [x] Двусторонняя совместимость AWG 3.0 Rust ↔ Go на закреплённом upstream commit; golden vectors полного packet framing остаются отдельной задачей.
 
 ### Этап D — AmneziaWG 3.1
 - [x] Базовые механизмы 3.1 RandomTrailers и DisableCookies.
 - [x] Базовые двусторонние handshake/transport тесты AWG 3.0/3.1 на закреплённой версии amneziawg-go.
-- [ ] Differential tests и golden vectors на точной версии amneziawg-go 3.1.
+- [x] Двусторонняя совместимость AWG 3.1 Rust ↔ Go на закреплённом upstream commit; differential tests и golden vectors остаются отдельной задачей.
 - [ ] Live Go queue under-load, естественное cookie expiry и расширенные edge-case сценарии.
 
 ### Этап E — интеграция и hardening
@@ -88,4 +88,4 @@
 
 ## 5. Критерии готовности
 
-Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация покрывает базовые AWG packet transforms и проходит внешнюю Go interoperability для WG/AWG 3.0/3.1, включая MAC2 challenge, Rust server cookie flow и принудительную cookie rotation. Live Go queue overload, естественное cookie expiry, custom timers и padding автоматически генерируемых keepalive ещё впереди.
+Проект нельзя объявлять совместимым с WireGuard или AWG, пока соответствующий режим не проходит полную матрицу interoperability и regression tests. Текущая реализация проходит внешнюю двустороннюю Go interoperability suite для классического WireGuard, AWG 3.0 и AWG 3.1 на закреплённых ревизиях. Проверены handshake, IPv4 transport, Cookie Reply/MAC2 retry, DisableCookies и принудительная cookie-secret rotation, включая Rust server-side cookie flow. Live Go queue stress, естественное cookie expiry, differential vectors, custom timers и padding автоматически генерируемых keepalive ещё впереди.
