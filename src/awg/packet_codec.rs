@@ -1332,7 +1332,15 @@ mod tests {
         ));
 
         assert_eq!(encoded, expected);
-        assert_eq!(codec.decode(&expected).unwrap(), packet);
+        let mut receiver =
+            AwgPacketCodec::new_with_keys(&config, &[0x22; 32], &[0x11; 32]).unwrap();
+        let mut canonical_expected = packet.clone();
+        recompute_mac1(
+            &mut canonical_expected,
+            &derive_mac1_key(&[0x22; 32]),
+        )
+        .unwrap();
+        assert_eq!(receiver.decode(&expected).unwrap(), canonical_expected);
     }
 
     #[test]
@@ -1352,7 +1360,15 @@ mod tests {
         ));
 
         assert_eq!(encoded, expected);
-        assert_eq!(codec.decode(&expected).unwrap(), packet);
+        let mut receiver =
+            AwgPacketCodec::new_with_keys(&config, &[0x22; 32], &[0x11; 32]).unwrap();
+        let mut canonical_expected = packet.clone();
+        recompute_mac1(
+            &mut canonical_expected,
+            &derive_mac1_key(&[0x22; 32]),
+        )
+        .unwrap();
+        assert_eq!(receiver.decode(&expected).unwrap(), canonical_expected);
     }
 
     // Fixed vectors independently generated with Python hashlib.blake2s.
