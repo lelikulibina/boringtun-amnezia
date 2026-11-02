@@ -693,29 +693,21 @@ impl AwgPacketCodec {
 
 fn ranges_overlap(left: ValueRange, right: ValueRange) -> bool {
     let left_start = u64::from(left.min);
-    let left_end = if left.min == left.max {
-        left_start + 1
-    } else {
-        u64::from(left.max)
-    };
+    let left_end = u64::from(left.max) + 1;
     let right_start = u64::from(right.min);
-    let right_end = if right.min == right.max {
-        right_start + 1
-    } else {
-        u64::from(right.max)
-    };
+    let right_end = u64::from(right.max) + 1;
     left_start < right_end && right_start < left_end
 }
 
 fn range_is_single_value(range: ValueRange, expected: u32) -> bool {
-    range.min == expected && (range.max == expected || range.max == expected + 1)
+    range.min == expected && range.max == expected
 }
 
 fn pick_header_value<R: RngCore>(range: ValueRange, rng: &mut R) -> u32 {
     if range.min == range.max {
         range.min
     } else {
-        range.min + random_below(rng, (range.max - range.min) as usize) as u32
+        range.min + random_below_u64(rng, u64::from(range.max) - u64::from(range.min) + 1) as u32
     }
 }
 
@@ -1277,6 +1269,22 @@ mod tests {
 
         assert_eq!(encoded, expected);
         assert_eq!(codec.decode(&expected).unwrap(), packet);
+    }
+
+    #[test]
+    fn h4_decoder_accepts_the_inclusive_upper_range_endpoint() {
+        let mut config = base_config(false);
+        config.headers.h4 = Some(ValueRange { min: 700, max: 800 });
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
+
+        let mut datagram = vec![0x44; 12];
+        datagram.extend_from_slice(&800u32.to_le_bytes());
+        datagram.extend_from_slice(&[0u8; 28]);
+
+        assert_eq!(
+            codec.decode(&datagram).unwrap(),
+            canonical_packet(MessageKind::Transport)
+        );
     }
 
     // Fixed vectors independently generated with Python hashlib.blake2s.
