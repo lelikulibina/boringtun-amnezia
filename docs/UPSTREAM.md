@@ -77,7 +77,7 @@ README upstream предупреждает о реструктуризации �
 | Проект | Reference HEAD | Использование в этом репозитории |
 |---|---|---|
 | Cloudflare BoringTun | `6dcc889a95ad82400932f785d874421d70308195` | Архитектурный upstream. Cargo dependency пока закреплён на опубликованной версии `boringtun = 0.7.1`, а не на этом HEAD. |
-| AmneziaWG Go | `b5928efb6ca19f0153958460c3d141f04abc5c2e` | Эталон поведения AWG и будущих differential/interoperability tests. |
-| WireGuard Go | `b3bc704ef0ee21a36298601a9e1e5ff90377ac52` | Эталон классического WireGuard и будущих differential/interoperability tests. |
+| AmneziaWG Go | `b5928efb6ca19f0153958460c3d141f04abc5c2e` | Закреплённый эталон поведения AWG; двусторонние interoperability tests проходят в CI. |
+| WireGuard Go | `b3bc704ef0ee21a36298601a9e1e5ff90377ac52` | Закреплённый эталон классического WireGuard; двусторонние interoperability tests проходят в CI. |
 
 Перед обновлением любого reference SHA необходимо повторно прогнать совместимость и обновить golden vectors. Не использовать плавающую ветку master в тестовых сценариях.
