@@ -475,9 +475,11 @@ impl AwgPacketCodec {
             let header_range = self.header_ranges[kind.index()];
             if let Some(key) = self.header_protection_key {
                 let nonce = &datagram[..HEADER_PROTECTION_NONCE_SIZE];
-                if Self::unprotect_candidate(key, nonce, kind, header_range, &mut candidate)
-                    .is_err()
+                if let Err(error) =
+                    Self::unprotect_candidate(key, nonce, kind, header_range, &mut candidate)
                 {
+                    #[cfg(debug_assertions)]
+                    eprintln!("AWG decode candidate {kind:?}: header unprotect failed: {error:?}");
                     continue;
                 }
             } else if !header_range.contains(u32::from_le_bytes(candidate[..4].try_into().unwrap()))
@@ -534,7 +536,14 @@ impl AwgPacketCodec {
 
             let parsed = match Tunn::parse_incoming_packet(&candidate) {
                 Ok(packet) => packet,
-                Err(_) => continue,
+                Err(error) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "AWG decode candidate {kind:?}: type={received_header}, len={}, parse={error:?}",
+                        candidate.len()
+                    );
+                    continue;
+                }
             };
             if MessageKind::from_packet(&parsed) == kind {
                 if handshake {
