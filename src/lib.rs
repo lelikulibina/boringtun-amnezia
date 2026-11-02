@@ -455,6 +455,19 @@ mod tests {
     }
 
     #[test]
+    fn header_ranges_that_share_an_inclusive_endpoint_overlap() {
+        let mut amnezia = AmneziaConfig::default();
+        amnezia.headers.h1 = Some(ValueRange { min: 10, max: 20 });
+        amnezia.headers.h2 = Some(ValueRange { min: 20, max: 30 });
+        let config = EngineConfig {
+            mode: ProtocolMode::AmneziaWg31,
+            amnezia: Some(amnezia),
+        };
+
+        assert_eq!(config.validate(), Err(ConfigError::OverlappingHeaderRanges));
+    }
+
+    #[test]
     fn value_range_rejects_reversed_bounds() {
         assert_eq!(
             ValueRange::new(9, 3),
