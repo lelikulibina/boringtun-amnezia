@@ -296,6 +296,26 @@ mod tests {
         assert!(rendered[7..].iter().all(|b| DIGITS.contains(b)));
     }
 
+    // Deterministic CPS fixture matching the pinned amneziawg-go tag semantics.
+    // FixedRng(7) yields raw bytes 0x07, letters 'h' (7 % 52), and digits '7'.
+    #[test]
+    fn all_cps_tags_match_composite_golden_vector() {
+        let template = SignatureTemplate::parse(
+            "prefix<b 0xdeadbeef>middle<t><r 3><rc 4><rd 2><d><ds><dz 4>suffix",
+        )
+        .unwrap();
+        let mut rng = FixedRng(7);
+
+        assert_eq!(template.output_len(), 21);
+        assert_eq!(
+            template.render(&mut rng, 0x0102_0304).unwrap(),
+            [
+                0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04, 7, 7, 7, b'h', b'h', b'h', b'h',
+                b'7', b'7', 0, 0, 0, 0,
+            ]
+        );
+    }
+
     #[test]
     fn data_tags_are_empty_for_signature_packets_and_data_size_is_zero() {
         let template = SignatureTemplate::parse("<d><ds><dz 4>").unwrap();
