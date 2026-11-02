@@ -46,7 +46,7 @@ pub enum ProtocolMode {
 pub struct ValueRange {
     /// Нижняя включительная граница.
     pub min: u32,
-    /// Верхняя исключительная граница; при min == max задаёт фиксированное значение.
+    /// Верхняя включительная граница.
     pub max: u32,
 }
 
@@ -688,10 +688,6 @@ mod tests {
     #[test]
     fn awg_31_flags_are_accepted_in_awg_31() {
         let awg = AmneziaConfig {
-            padding: PacketPadding {
-                content_padding: Some(ValueRange { min: 1, max: 4 }),
-                ..PacketPadding::default()
-            },
             random_trailers: true,
             disable_cookies: true,
             ..AmneziaConfig::default()
