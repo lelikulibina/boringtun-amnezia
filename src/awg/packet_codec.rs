@@ -1242,6 +1242,25 @@ mod tests {
         );
     }
 
+    // Deterministic framing fixture: S4 is twelve 0x44 bytes and H4 is
+    // the little-endian value 200. This pins the on-wire byte layout rather
+    // than only asserting that encode/decode happen to round-trip.
+    #[test]
+    fn h4_transport_matches_golden_wire_vector() {
+        let mut config = base_config(false);
+        config.headers.h4 = Some(ValueRange { min: 200, max: 201 });
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::Transport);
+
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x44)).unwrap();
+        let mut expected = vec![0x44; 12];
+        expected.extend_from_slice(&200u32.to_le_bytes());
+        expected.extend_from_slice(&[0u8; 28]);
+
+        assert_eq!(encoded, expected);
+        assert_eq!(codec.decode(&expected).unwrap(), packet);
+    }
+
     // Fixed vectors independently generated with Python hashlib.blake2s.
     #[test]
     fn mac1_and_cookie_key_derivation_match_blake2s_reference_vectors() {
