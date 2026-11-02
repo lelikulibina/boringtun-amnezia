@@ -1,0 +1,25 @@
+name: Fuzzing
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Coverage-guided fuzzing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить исходный код
+        uses: actions/checkout@v4
+      - name: Установить nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Установить cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz AWG decoder
+        run: cargo fuzz run awg_decode -- -max_total_time=60
+      - name: Fuzz CPS parser
+        run: cargo fuzz run cps_parse -- -max_total_time=60

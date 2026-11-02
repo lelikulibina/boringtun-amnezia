@@ -17,6 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const DEFAULT_UDP_WINDOW: usize = 500;
 const DEFAULT_TUN_MTU: usize = 1_420;
 const MIN_TRANSPORT_MESSAGE_SIZE: usize = 32;
+const COOKIE_REPLY_MESSAGE_SIZE: usize = 64;
+const COOKIE_REPLY_MESSAGE_TYPE: u32 = 3;
 const MAX_UDP_PAYLOAD: usize = 65_507;
 
 /// Результат обработки AWG-туннеля.
@@ -47,8 +49,6 @@ pub enum AwgTunnelError {
     WireGuard(WireGuardError),
     /// Для AWG tunnel передан режим, отличный от AWG 3.0/3.1.
     InvalidMode,
-    /// Не удалось расшифровать cookie reply от удалённого peer.
-    CookieDecryptionFailed,
 }
 
 impl fmt::Display for AwgTunnelError {
@@ -59,7 +59,6 @@ impl fmt::Display for AwgTunnelError {
             Self::Signature(error) => write!(f, "ошибка CPS шаблона: {error}"),
             Self::WireGuard(error) => write!(f, "ошибка BoringTun: {error:?}"),
             Self::InvalidMode => f.write_str("AwgTunnel требует режим AmneziaWG 3.0 или 3.1"),
-            Self::CookieDecryptionFailed => f.write_str("не удалось расшифровать AWG cookie reply"),
         }
     }
 }
@@ -93,8 +92,6 @@ pub struct AwgTunnel {
     content_padding: Option<ValueRange>,
     udp_window: usize,
     mtu: usize,
-    peer_cookie_key: [u8; 32],
-    last_outbound_handshake: Option<(u32, [u8; 16], [u8; 16])>,
 }
 
 impl AwgTunnel {
@@ -124,15 +121,13 @@ impl AwgTunnel {
             local_public.as_bytes(),
             peer_static_public.as_bytes(),
         )?;
-        // DisableCookies disables only local cookie challenges. With ordinary
-        // H1/H2 randomization the codec instead canonicalizes incoming headers
-        // and recomputes MAC2 from cookies issued by this peer.
+        // An effectively unbounded limit preserves MAC1 validation while
+        // disabling cookie challenges, matching AWG DisableCookies behavior.
         let rate_limiter = if config.disable_cookies {
             Some(Arc::new(RateLimiter::new(&local_public, u64::MAX)))
         } else {
             None
         };
-        let peer_cookie_key = derive_cookie_key(peer_static_public.as_bytes());
         let tunn = Tunn::new(
             static_private,
             peer_static_public,
@@ -149,8 +144,6 @@ impl AwgTunnel {
             content_padding: config.padding.content_padding,
             udp_window: DEFAULT_UDP_WINDOW,
             mtu: DEFAULT_TUN_MTU,
-            peer_cookie_key,
-            last_outbound_handshake: None,
         })
     }
 
@@ -167,9 +160,7 @@ impl AwgTunnel {
         match result {
             TunnResult::WriteToNetwork(packet) => {
                 let mut batch = self.preamble_packets(rng)?;
-                let encoded = self.codec.encode(packet, self.udp_window, rng)?;
-                self.capture_outbound_handshake_context();
-                batch.push(encoded);
+                batch.push(self.codec.encode(packet, self.udp_window, rng)?);
                 Ok(AwgTunnelOutput::WriteToNetworkBatch(batch))
             }
             other => self.map_result(other, rng),
@@ -243,9 +234,38 @@ impl AwgTunnel {
             self.tunn.decapsulate(src_addr, &[], dst)
         } else {
             let canonical = self.codec.decode(datagram)?;
-            self.capture_cookie_reply(&canonical)?;
+
+            // AWG MAC1 is authenticated with the randomized H1/H2 header.
+            // BoringTun's internal CookieGenerator only retains the canonical
+            // MAC1, so it cannot authenticate a Go Cookie Reply whose AEAD
+            // associated data contains the randomized MAC1. The codec has
+            // already decrypted and retained this cookie; it will attach
+            // MAC2 to the next initiation. Do not pass this reply to BoringTun.
+            if canonical.len() == COOKIE_REPLY_MESSAGE_SIZE
+                && u32::from_le_bytes(canonical[..4].try_into().unwrap())
+                    == COOKIE_REPLY_MESSAGE_TYPE
+            {
+                return Ok(AwgTunnelOutput::Done);
+            }
+
             self.tunn.decapsulate(src_addr, &canonical, dst)
         };
+        self.map_result(result, rng)
+    }
+
+    /// Обновляет внутренние таймеры BoringTun и возвращает действие для UDP/TUN уровня.
+    ///
+    /// Хост должен периодически вызывать этот метод, чтобы работали повторные
+    /// handshake, rekey и persistent keepalive. AWG-специфичные переопределения
+    /// таймеров пока не поддерживаются; используются стандартные интервалы
+    /// закреплённой версии BoringTun.
+    pub fn update_timers<R: RngCore + CryptoRng>(
+        &mut self,
+        dst: &mut [u8],
+        rng: &mut R,
+    ) -> Result<AwgTunnelOutput, AwgTunnelError> {
+        Self::check_destination_buffer(dst.len(), 148)?;
+        let result = self.tunn.update_timers(dst);
         self.map_result(result, rng)
     }
 
@@ -268,47 +288,6 @@ impl AwgTunnel {
             return Err(PacketCodecError::PacketTooLarge.into());
         }
         self.mtu = mtu;
-        Ok(())
-    }
-
-    fn capture_outbound_handshake_context(&mut self) {
-        if let Some(context) = self.codec.take_last_outbound_handshake_context() {
-            self.last_outbound_handshake = Some(context);
-        }
-    }
-
-    fn capture_cookie_reply(&mut self, packet: &[u8]) -> Result<(), AwgTunnelError> {
-        if packet.len() != 64 || u32::from_le_bytes(packet[..4].try_into().unwrap()) != 3 {
-            return Ok(());
-        }
-
-        let Some((sender_index, random_mac1, canonical_mac1)) = self.last_outbound_handshake else {
-            return Ok(());
-        };
-        let receiver_index = u32::from_le_bytes(packet[4..8].try_into().unwrap());
-        if receiver_index != sender_index {
-            return Ok(());
-        }
-
-        let cipher = XChaCha20Poly1305::new_from_slice(&self.peer_cookie_key)
-            .map_err(|_| AwgTunnelError::CookieDecryptionFailed)?;
-        let nonce = XNonce::from_slice(&packet[8..32]);
-        let decrypt_with_aad = |aad: &[u8; 16]| {
-            cipher.decrypt(
-                nonce,
-                Payload {
-                    msg: &packet[32..64],
-                    aad,
-                },
-            )
-        };
-        let plaintext = decrypt_with_aad(&random_mac1)
-            .or_else(|_| decrypt_with_aad(&canonical_mac1))
-            .map_err(|_| AwgTunnelError::CookieDecryptionFailed)?;
-        let cookie: [u8; 16] = plaintext
-            .try_into()
-            .map_err(|_| AwgTunnelError::CookieDecryptionFailed)?;
-        self.codec.set_write_cookie(cookie);
         Ok(())
     }
 
@@ -366,6 +345,25 @@ impl AwgTunnel {
         Ok(packets)
     }
 
+    fn encode_network_packet<R: RngCore + CryptoRng>(
+        &mut self,
+        packet: &[u8],
+        rng: &mut R,
+    ) -> Result<Vec<u8>, AwgTunnelError> {
+        // Upstream uses the fixed device UDP window for Cookie Reply trailers;
+        // handshake initiation/response use the peer's learned UDP window.
+        let message_type = packet
+            .get(..4)
+            .and_then(|header| <[u8; 4]>::try_from(header).ok())
+            .map(u32::from_le_bytes);
+        let udp_window = if message_type == Some(3) {
+            DEFAULT_UDP_WINDOW
+        } else {
+            self.udp_window
+        };
+        Ok(self.codec.encode(packet, udp_window, rng)?)
+    }
+
     fn map_result<R: RngCore + CryptoRng>(
         &mut self,
         result: TunnResult<'_>,
@@ -375,8 +373,21 @@ impl AwgTunnel {
             TunnResult::Done => Ok(AwgTunnelOutput::Done),
             TunnResult::Err(error) => Err(AwgTunnelError::WireGuard(error)),
             TunnResult::WriteToNetwork(packet) => {
-                let encoded = self.codec.encode(packet, self.udp_window, rng)?;
-                self.capture_outbound_handshake_context();
+                let is_handshake_initiation = packet
+                    .get(..4)
+                    .and_then(|header| <[u8; 4]>::try_from(header).ok())
+                    .map(u32::from_le_bytes)
+                    == Some(1);
+                let encoded = self.encode_network_packet(packet, rng)?;
+
+                if is_handshake_initiation {
+                    let mut batch = self.preamble_packets(rng)?;
+                    if !batch.is_empty() {
+                        batch.push(encoded);
+                        return Ok(AwgTunnelOutput::WriteToNetworkBatch(batch));
+                    }
+                }
+
                 Ok(AwgTunnelOutput::WriteToNetwork(encoded))
             }
             TunnResult::WriteToTunnelV4(packet, source) => {
@@ -387,13 +398,6 @@ impl AwgTunnel {
             }
         }
     }
-}
-
-fn derive_cookie_key(peer_public_key: &[u8; 32]) -> [u8; 32] {
-    let mut hash = Blake2s256::new();
-    hash.update(b"cookie--");
-    hash.update(peer_public_key);
-    hash.finalize().into()
 }
 
 fn calculate_padding_size(packet_size: usize, mtu: usize) -> usize {
@@ -424,7 +428,7 @@ fn random_range<R: RngCore>(rng: &mut R, min: u32, max: u32) -> u32 {
     if max <= min {
         return min;
     }
-    let width = u64::from(max) - u64::from(min);
+    let width = u64::from(max) - u64::from(min) + 1;
     min + random_below_u64(rng, width) as u32
 }
 
@@ -445,49 +449,62 @@ fn random_below_u64<R: RngCore>(rng: &mut R, upper: u64) -> u64 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn cookie_reply_is_decrypted_with_last_mac1_and_peer_static_key() {
-        let local_secret = x25519::StaticSecret::from([0x11; 32]);
-        let peer_secret = x25519::StaticSecret::from([0x22; 32]);
-        let peer_public = x25519::PublicKey::from(&peer_secret);
-        let config = AmneziaConfig::default();
-        let mut tunnel = AwgTunnel::new(
-            ProtocolMode::AmneziaWg31,
-            local_secret,
-            peer_public,
-            None,
-            None,
-            1,
-            &config,
-        )
-        .unwrap();
+    struct FixedRng(u8);
 
-        let sender_index = 0x1234_5678;
-        let last_mac1 = [0x5a; 16];
-        let cookie = [0x6b; 16];
-        let nonce = [0x7c; 24];
-        tunnel.last_outbound_handshake = Some((sender_index, last_mac1, last_mac1));
+    impl CryptoRng for FixedRng {}
 
-        let cipher = XChaCha20Poly1305::new_from_slice(&tunnel.peer_cookie_key).unwrap();
-        let encrypted = cipher
-            .encrypt(
-                XNonce::from_slice(&nonce),
-                Payload {
-                    msg: &cookie,
-                    aad: &last_mac1,
-                },
-            )
-            .unwrap();
-        assert_eq!(encrypted.len(), 32);
+    impl RngCore for FixedRng {
+        fn next_u32(&mut self) -> u32 {
+            u32::from(self.0) * 0x0101_0101
+        }
 
-        let mut packet = vec![0u8; 64];
-        packet[..4].copy_from_slice(&3u32.to_le_bytes());
-        packet[4..8].copy_from_slice(&sender_index.to_le_bytes());
-        packet[8..32].copy_from_slice(&nonce);
-        packet[32..64].copy_from_slice(&encrypted);
+        fn next_u64(&mut self) -> u64 {
+            u64::from(self.next_u32()) | (u64::from(self.next_u32()) << 32)
+        }
 
-        tunnel.capture_cookie_reply(&packet).unwrap();
-        assert!(tunnel.codec.has_write_cookie());
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            for byte in dest {
+                *byte = self.0;
+            }
+        }
+
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+            self.fill_bytes(dest);
+            Ok(())
+        }
+    }
+
+    fn tunnel_with_rate_limiter(
+        static_private: x25519::StaticSecret,
+        peer_public: x25519::PublicKey,
+        index: u32,
+        config: &AmneziaConfig,
+        rate_limiter: Option<Arc<RateLimiter>>,
+    ) -> AwgTunnel {
+        let local_public = x25519::PublicKey::from(&static_private);
+        let codec =
+            AwgPacketCodec::new_with_keys(config, local_public.as_bytes(), peer_public.as_bytes())
+                .unwrap();
+        let tunn = Tunn::new(static_private, peer_public, None, None, index, rate_limiter);
+        AwgTunnel {
+            tunn,
+            codec,
+            junk: config.junk,
+            signature_packets: config.signature_packets.clone(),
+            content_padding: config.padding.content_padding,
+            udp_window: DEFAULT_UDP_WINDOW,
+            mtu: DEFAULT_TUN_MTU,
+        }
+    }
+
+    fn last_network_packet(output: AwgTunnelOutput) -> Vec<u8> {
+        match output {
+            AwgTunnelOutput::WriteToNetwork(packet) => packet,
+            AwgTunnelOutput::WriteToNetworkBatch(mut packets) => {
+                packets.pop().expect("handshake batch contains a packet")
+            }
+            other => panic!("ожидался сетевой пакет, получено {other:?}"),
+        }
     }
 
     #[test]
@@ -496,5 +513,120 @@ mod tests {
         assert_eq!(calculate_padding_size(32, 1_420), 0);
         assert_eq!(calculate_padding_size(1_430, 1_420), 6);
         assert_eq!(calculate_padding_size(20, 0), 12);
+    }
+
+    #[test]
+    fn cookie_reply_random_trailer_uses_fixed_device_udp_window() {
+        let config = AmneziaConfig {
+            random_trailers: true,
+            padding: crate::PacketPadding {
+                s3: Some(12),
+                ..crate::PacketPadding::default()
+            },
+            ..AmneziaConfig::default()
+        };
+
+        let local_secret = x25519::StaticSecret::from([0x11; 32]);
+        let peer_secret = x25519::StaticSecret::from([0x22; 32]);
+        let local_public = x25519::PublicKey::from(&local_secret);
+        let peer_public = x25519::PublicKey::from(&peer_secret);
+        let mut tunnel = tunnel_with_rate_limiter(local_secret, peer_public, 1, &config, None);
+        tunnel.udp_window = 1_000;
+
+        let mut cookie_reply = vec![0u8; 64];
+        cookie_reply[..4].copy_from_slice(&3u32.to_le_bytes());
+        let actual = tunnel
+            .encode_network_packet(&cookie_reply, &mut FixedRng(0xff))
+            .unwrap();
+
+        let mut expected_codec =
+            AwgPacketCodec::new_with_keys(&config, local_public.as_bytes(), peer_public.as_bytes())
+                .unwrap();
+        let expected = expected_codec
+            .encode(&cookie_reply, DEFAULT_UDP_WINDOW, &mut FixedRng(0xff))
+            .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn randomized_handshake_survives_cookie_challenge_and_mac2_retry() {
+        let mut config = AmneziaConfig::default();
+        config.headers.h1 = Some(ValueRange { min: 100, max: 200 });
+        config.headers.h2 = Some(ValueRange { min: 300, max: 400 });
+        config.headers.h3 = Some(ValueRange { min: 500, max: 600 });
+        config.headers.h4 = Some(ValueRange { min: 700, max: 800 });
+        config.padding.s1 = Some(12);
+        config.padding.s2 = Some(12);
+        config.padding.s3 = Some(12);
+        config.padding.s4 = Some(12);
+
+        let client_secret = x25519::StaticSecret::from([0x11; 32]);
+        let server_secret = x25519::StaticSecret::from([0x22; 32]);
+        let client_public = x25519::PublicKey::from(&client_secret);
+        let server_public = x25519::PublicKey::from(&server_secret);
+        let limiter = Arc::new(RateLimiter::new(&server_public, 0));
+
+        let mut client = tunnel_with_rate_limiter(client_secret, server_public, 1, &config, None);
+        let mut server =
+            tunnel_with_rate_limiter(server_secret, client_public, 2, &config, Some(limiter));
+
+        let remote = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 23));
+        let mut client_buffer = [0u8; 2048];
+        let mut server_buffer = [0u8; 2048];
+        let mut client_rng = FixedRng(0x31);
+        let mut server_rng = FixedRng(0x42);
+
+        let initial = client
+            .initiate_handshake(&mut client_buffer, true, &mut client_rng)
+            .unwrap();
+        let initial_packet = last_network_packet(initial);
+        let cookie_reply = server
+            .decapsulate(
+                Some(remote),
+                &initial_packet,
+                &mut server_buffer,
+                &mut server_rng,
+            )
+            .unwrap();
+        let cookie_reply = last_network_packet(cookie_reply);
+        assert_eq!(cookie_reply.len(), 12 + 64);
+
+        assert_eq!(
+            client
+                .decapsulate(
+                    Some(remote),
+                    &cookie_reply,
+                    &mut client_buffer,
+                    &mut client_rng,
+                )
+                .unwrap(),
+            AwgTunnelOutput::Done
+        );
+
+        let retry = client
+            .initiate_handshake(&mut client_buffer, true, &mut client_rng)
+            .unwrap();
+        let retry_packet = last_network_packet(retry);
+        let response = server
+            .decapsulate(
+                Some(remote),
+                &retry_packet,
+                &mut server_buffer,
+                &mut server_rng,
+            )
+            .unwrap();
+        let response_packet = last_network_packet(response);
+
+        // A second Cookie Reply would be 12 + 64 bytes. A 12 + 92 byte
+        // response proves the server accepted the cookie-backed MAC2.
+        assert_eq!(response_packet.len(), 12 + 92);
+        client
+            .decapsulate(
+                Some(remote),
+                &response_packet,
+                &mut client_buffer,
+                &mut client_rng,
+            )
+            .unwrap();
     }
 }

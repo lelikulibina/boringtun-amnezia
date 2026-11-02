@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "work/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Проверка Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить исходный код
+        uses: actions/checkout@v4
+      - name: Установить стабильный Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Проверить форматирование
+        run: cargo fmt --all -- --check
+      - name: Запустить тесты
+        run: cargo test --workspace --all-features
+      - name: Проверить матрицу feature flags
+        run: |
+          cargo test --workspace --no-default-features
+          cargo test --workspace --no-default-features --features wireguard
+          cargo test --workspace --no-default-features --features amneziawg-3-0
+          cargo test --workspace --no-default-features --features amneziawg-3-1
+      - name: Проверить Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Проверить сборку fuzz targets
+        run: cargo check --manifest-path fuzz/Cargo.toml --bins
+
+  cross-platform:
+    name: Проверка на ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Получить исходный код
+        uses: actions/checkout@v4
+      - name: Установить стабильный Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Проверить форматирование
+        run: cargo fmt --all -- --check
+      - name: Проверить сборку и тесты всех протоколов
+        run: cargo test --workspace --all-features
+
+  go-interop:
+    name: Двусторонняя совместимость с wireguard-go и amneziawg-go
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить Rust проект
+        uses: actions/checkout@v4
+      - name: Установить стабильный Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Установить Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
+      - name: Получить закреплённую AWG Go реализацию
+        run: |
+          git clone --depth 1 https://github.com/amnezia-vpn/amneziawg-go.git "$RUNNER_TEMP/amneziawg-go"
+          git -C "$RUNNER_TEMP/amneziawg-go" checkout b5928efb6ca19f0153958460c3d141f04abc5c2e
+      - name: Собрать тестовый Go peer
+        run: |
+          mkdir -p "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer"
+          gofmt -w tests/interop/amneziawg_peer.go tests/interop/underload_test_hook.go
+          cp tests/interop/amneziawg_peer.go "$RUNNER_TEMP/amneziawg-go/cmd/interop-peer/main.go"
+          cp tests/interop/underload_test_hook.go "$RUNNER_TEMP/amneziawg-go/device/interop_test_hook.go"
+          cd "$RUNNER_TEMP/amneziawg-go"
+          go build -o "$RUNNER_TEMP/awg-go-peer" ./cmd/interop-peer
+      - name: Получить закреплённую upstream WireGuard Go реализацию
+        run: |
+          git clone --depth 1 https://github.com/WireGuard/wireguard-go.git "$RUNNER_TEMP/wireguard-go"
+          git -C "$RUNNER_TEMP/wireguard-go" checkout b3bc704ef0ee21a36298601a9e1e5ff90377ac52
+      - name: Собрать независимый WireGuard Go peer
+        run: |
+          mkdir -p "$RUNNER_TEMP/wireguard-go/cmd/interop-peer"
+          gofmt -w tests/interop/wireguard_peer.go
+          cp tests/interop/wireguard_peer.go "$RUNNER_TEMP/wireguard-go/cmd/interop-peer/main.go"
+          cd "$RUNNER_TEMP/wireguard-go"
+          go build -o "$RUNNER_TEMP/wireguard-go-peer" ./cmd/interop-peer
+      - name: Запустить двусторонние WG/AWG interoperability тесты
+        env:
+          AWG_GO_HELPER: ${{ runner.temp }}/awg-go-peer
+          WIREGUARD_GO_HELPER: ${{ runner.temp }}/wireguard-go-peer
+        run: cargo test --test go_interop -- --ignored --nocapture
