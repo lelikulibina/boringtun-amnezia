@@ -5,7 +5,7 @@ Rust-проект для поддержки стандартного WireGuard �
 ## Текущий статус
 
 - **WireGuard:** подключён Cloudflare BoringTun 0.7.1 через точную версию Cargo dependency. Публичный API доступен через `wireguard::Tunn`; есть integration tests handshake и зашифрованного обмена IPv4-пакетами.
-- **AWG framing:** реализованы H1-H4 ranges, S1-S4 padding и ChaCha20 header protection. Для handshake при изменении H1/H2 пересчитывается MAC1; для transport защищаются только 16 байт заголовка.
+- **AWG framing:** реализованы H1-H4 ranges, S1-S4 padding и ChaCha20 header protection. Для handshake при изменении H1/H2 пересчитывается MAC1; для transport защищаются только 16 байт заголовка. Границы H1-H4 и числовых AWG ranges включительные, как в upstream amneziawg-go.
 - **AWG tunnel wrapper:** добавлена обёртка BoringTun с двусторонним handshake/transport, I1-I5/Junk preambles и MTU-aware content padding.
 - **AWG 3.1:** реализованы RandomTrailers, ContentPaddingAddition и DisableCookies. Для handshake/cookie trailer добавляется во внешний датаграмм; для transport нулевые байты добавляются в plaintext до AEAD и обрезаются по длине внутреннего IP-пакета.
 - **H1/H2 и MAC2:** исходные MAC1/MAC2 проверяются до канонизации заголовка; при валидном cookie MAC1/MAC2 пересчитываются для BoringTun. Cookie Reply обрабатываются через XChaCha20-Poly1305 и ключи, выведенные из публичных ключей peers. Это устраняет необходимость включать DisableCookies только ради H1/H2 randomization; Go interop проверяет MAC2 challenge/response и повторную отправку.
