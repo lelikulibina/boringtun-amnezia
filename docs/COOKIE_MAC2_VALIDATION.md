@@ -1,3 +1,3 @@
 # Валидация cookie/MAC2
 
-Ветка содержит внутреннюю реализацию cookie reply, MAC1/MAC2 и регрессионные тесты. Этот PR предназначен для запуска CI на актуальном дереве; внешний Go↔Rust interoperability остаётся обязательным этапом.
+Ветка содержит внутреннюю реализацию Cookie Reply, MAC1/MAC2 и регрессионные тесты. Двусторонняя Go↔Rust interoperability проверка прошла в CI 2026-11-02 на закреплённых upstream ревизиях для WireGuard, AWG 3.0 и AWG 3.1. Проверены MAC2 challenge/retry, AWG 3.1 DisableCookies, Rust server-side Cookie Reply и принудительная ротация cookie secret. Полные differential/golden vectors и длительные live queue stress tests остаются обязательными дальнейшими этапами.
