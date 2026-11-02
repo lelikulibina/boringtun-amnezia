@@ -1261,6 +1261,24 @@ mod tests {
         assert_eq!(codec.decode(&expected).unwrap(), packet);
     }
 
+    // Deterministic cookie framing fixture: S3 is twelve 0x33 bytes and H3
+    // is the little-endian value 200. Cookie payload bytes remain unchanged.
+    #[test]
+    fn h3_cookie_reply_matches_golden_wire_vector() {
+        let mut config = base_config(false);
+        config.headers.h3 = Some(ValueRange { min: 200, max: 201 });
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::CookieReply);
+
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x33)).unwrap();
+        let mut expected = vec![0x33; 12];
+        expected.extend_from_slice(&200u32.to_le_bytes());
+        expected.extend_from_slice(&[0u8; 60]);
+
+        assert_eq!(encoded, expected);
+        assert_eq!(codec.decode(&expected).unwrap(), packet);
+    }
+
     // Fixed vectors independently generated with Python hashlib.blake2s.
     #[test]
     fn mac1_and_cookie_key_derivation_match_blake2s_reference_vectors() {
