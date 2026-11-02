@@ -47,7 +47,8 @@
 - [x] Внутренний MAC2 cookie flow: расшифровка Cookie Reply, сохранение cookies, проверка исходного MAC2 и безопасный пересчёт после канонизации.
 - [x] Независимые BLAKE2s golden vectors для MAC1/cookie key derivation и MAC1/MAC2 message tags.
 - [x] Базовая двусторонняя interoperability проверка handshake/IPv4 transport AWG 3.0 и 3.1 против закреплённого amneziawg-go.
-- [x] Добавить первый точный H4/S4 transport golden vector для внешнего AWG framing.
+- [x] Добавить точные H1/H2 handshake и H3/S3 Cookie Reply, H4/S4 transport golden vectors; H1/H2 fixtures проверяют MAC1 и ChaCha20 header protection.
+- [x] Добавить composite CPS golden vector для всех восьми Go-тегов с фиксированными RNG и timestamp.
 - [ ] Golden vectors и differential-проверка полного AWG packet framing непосредственно с закреплённой Go-реализацией (все message types, header protection, randomized H1-H4 и trailer variants).
 - [x] End-to-end RateLimiter under-load test: Cookie Reply → client cookie → randomized retry → успешный handshake.
 - [x] Двусторонняя Go interoperability проверка MAC2 under-load и принудительной cookie rotation.
