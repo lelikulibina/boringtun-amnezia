@@ -629,6 +629,7 @@ fn run_awg_interop(
     is_31: bool,
     disable_cookies: bool,
     rotate_cookie: bool,
+    natural_cookie_expiry: bool,
 ) {
     eprintln!("Starting Go interoperability scenario: {go_mode}");
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind Rust UDP socket");
@@ -684,6 +685,12 @@ fn run_awg_interop(
                     peer.rotate_cookie_secret();
                     cookie_rotation_triggered = true;
                 }
+                if natural_cookie_expiry && cookie_challenge_count == 1 {
+                    // The pinned Go implementation refreshes its cookie secret
+                    // after CookieRefreshTime (120 seconds). Wait past that
+                    // real deadline rather than mutating secretSet in a hook.
+                    thread::sleep(Duration::from_secs(121));
+                }
                 initiation = tunnel
                     .initiate_handshake(&mut buffer, true, &mut rng)
                     .expect("format AWG MAC2 cookie retry");
@@ -707,7 +714,7 @@ fn run_awg_interop(
         cookie_challenge_count,
         if disable_cookies {
             0
-        } else if rotate_cookie {
+        } else if rotate_cookie || natural_cookie_expiry {
             2
         } else {
             1
@@ -740,19 +747,51 @@ fn run_awg_interop(
 fn interoperates_with_pinned_wireguard_and_amneziawg_go_in_both_directions() {
     run_wireguard_interop();
     run_upstream_wireguard_interop();
-    run_awg_interop(ProtocolMode::AmneziaWg30, "awg30", false, false, false);
-    run_awg_interop(ProtocolMode::AmneziaWg31, "awg31", true, false, false);
+    run_awg_interop(
+        ProtocolMode::AmneziaWg30,
+        "awg30",
+        false,
+        false,
+        false,
+        false,
+    );
+    run_awg_interop(
+        ProtocolMode::AmneziaWg31,
+        "awg31",
+        true,
+        false,
+        false,
+        false,
+    );
     run_awg_interop(
         ProtocolMode::AmneziaWg31,
         "awg31-nocookies",
         true,
         true,
         false,
+        false,
     );
     run_awg_interop(
         ProtocolMode::AmneziaWg31,
         "awg31-rotate-cookie",
         true,
+        false,
+        true,
+        false,
+    );
+    run_awg_interop(
+        ProtocolMode::AmneziaWg31,
+        "awg31-livequeue",
+        true,
+        false,
+        false,
+        false,
+    );
+    run_awg_interop(
+        ProtocolMode::AmneziaWg31,
+        "awg31-natural-expiry",
+        true,
+        false,
         false,
         true,
     );

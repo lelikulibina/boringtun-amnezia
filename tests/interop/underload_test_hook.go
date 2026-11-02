@@ -2,11 +2,14 @@
 // It activates the real under-load branch without flooding the UDP socket.
 package device
 
-import "time"
+import (
+	"runtime"
+	"time"
+)
 
 // ForceUnderLoadForInterop activates the normal cookie challenge path.
 func ForceUnderLoadForInterop(device *Device) {
-	device.rate.underLoadUntil.Store(time.Now().Add(30 * time.Second).UnixNano())
+	device.rate.underLoadUntil.Store(time.Now().Add(5 * time.Minute).UnixNano())
 }
 
  
@@ -21,6 +24,42 @@ func VerifyNaturalUnderLoadThresholdForInterop() bool {
 		probe.queue.handshake.c <- QueueHandshakeElement{}
 	}
 	return probe.IsUnderLoad()
+}
+
+// StressLiveHandshakeQueueForInterop fills the handshake queue on a running
+// Device while its real RoutineHandshake workers are active. The hook holds
+// the cookie checker write lock so workers block in the normal MAC1 validation
+// path, allowing the real queue to reach its production under-load threshold.
+func StressLiveHandshakeQueueForInterop(device *Device) bool {
+	// Each live handshake worker may remove one item before blocking on the
+	// cookie checker's read lock. Queue enough real initiation elements to keep
+	// the production threshold populated after every worker is parked there.
+	workers := runtime.NumCPU()
+	threshold := QueueHandshakeSize / 8
+	target := threshold + workers
+	buffers := make([]*[MaxMessageSize]byte, target)
+	for i := range buffers {
+		buffers[i] = device.GetMessageBuffer()
+	}
+
+	device.cookieChecker.Lock()
+	queued := 0
+	for _, buffer := range buffers {
+		select {
+		case device.queue.handshake.c <- QueueHandshakeElement{
+			msgType:  MessageInitiationType,
+			packet:   buffer[:MessageInitiationSize],
+			buffer:   buffer,
+			endpoint: nil,
+		}:
+			queued++
+		default:
+			device.PutMessageBuffer(buffer)
+		}
+	}
+	underLoad := device.IsUnderLoad()
+	device.cookieChecker.Unlock()
+	return queued == target && underLoad
 }
 
 // RotateCookieSecretForInterop expires the current cookie secret. The next
