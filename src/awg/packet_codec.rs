@@ -693,29 +693,21 @@ impl AwgPacketCodec {
 
 fn ranges_overlap(left: ValueRange, right: ValueRange) -> bool {
     let left_start = u64::from(left.min);
-    let left_end = if left.min == left.max {
-        left_start + 1
-    } else {
-        u64::from(left.max)
-    };
+    let left_end = u64::from(left.max) + 1;
     let right_start = u64::from(right.min);
-    let right_end = if right.min == right.max {
-        right_start + 1
-    } else {
-        u64::from(right.max)
-    };
+    let right_end = u64::from(right.max) + 1;
     left_start < right_end && right_start < left_end
 }
 
 fn range_is_single_value(range: ValueRange, expected: u32) -> bool {
-    range.min == expected && (range.max == expected || range.max == expected + 1)
+    range.min == expected && range.max == expected
 }
 
 fn pick_header_value<R: RngCore>(range: ValueRange, rng: &mut R) -> u32 {
     if range.min == range.max {
         range.min
     } else {
-        range.min + random_below(rng, (range.max - range.min) as usize) as u32
+        range.min + random_below_u64(rng, u64::from(range.max) - u64::from(range.min) + 1) as u32
     }
 }
 
@@ -806,6 +798,19 @@ fn random_below<R: RngCore>(rng: &mut R, upper: usize) -> usize {
         let value = rng.next_u32();
         if value >= threshold {
             return (value % upper) as usize;
+        }
+    }
+}
+
+fn random_below_u64<R: RngCore>(rng: &mut R, upper: u64) -> u64 {
+    if upper <= 1 {
+        return 0;
+    }
+    let threshold = upper.wrapping_neg() % upper;
+    loop {
+        let value = rng.next_u64();
+        if value >= threshold {
+            return value % upper;
         }
     }
 }
@@ -1239,6 +1244,59 @@ mod tests {
         assert_eq!(
             receiver.decode(&encoded),
             Err(PacketCodecError::InvalidDatagram)
+        );
+    }
+
+    // Deterministic framing fixture: S4 is twelve 0x44 bytes and H4 is
+    // the little-endian value 200. This pins the on-wire byte layout rather
+    // than only asserting that encode/decode happen to round-trip.
+    #[test]
+    fn h4_transport_matches_golden_wire_vector() {
+        let mut config = base_config(false);
+        config.headers.h4 = Some(ValueRange { min: 200, max: 201 });
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::Transport);
+
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x44)).unwrap();
+        let mut expected = vec![0x44; 12];
+        expected.extend_from_slice(&200u32.to_le_bytes());
+        expected.extend_from_slice(&[0u8; 28]);
+
+        assert_eq!(encoded, expected);
+        assert_eq!(codec.decode(&expected).unwrap(), packet);
+    }
+
+    // Deterministic cookie framing fixture: S3 is twelve 0x33 bytes and H3
+    // is the little-endian value 200. Cookie payload bytes remain unchanged.
+    #[test]
+    fn h3_cookie_reply_matches_golden_wire_vector() {
+        let mut config = base_config(false);
+        config.headers.h3 = Some(ValueRange { min: 200, max: 200 });
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
+        let packet = canonical_packet(MessageKind::CookieReply);
+
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x33)).unwrap();
+        let mut expected = vec![0x33; 12];
+        expected.extend_from_slice(&200u32.to_le_bytes());
+        expected.extend_from_slice(&[0u8; 60]);
+
+        assert_eq!(encoded, expected);
+        assert_eq!(codec.decode(&expected).unwrap(), packet);
+    }
+
+    #[test]
+    fn h4_decoder_accepts_the_inclusive_upper_range_endpoint() {
+        let mut config = base_config(false);
+        config.headers.h4 = Some(ValueRange { min: 700, max: 800 });
+        let mut codec = AwgPacketCodec::new(&config).unwrap();
+
+        let mut datagram = vec![0x44; 12];
+        datagram.extend_from_slice(&800u32.to_le_bytes());
+        datagram.extend_from_slice(&[0u8; 28]);
+
+        assert_eq!(
+            codec.decode(&datagram).unwrap(),
+            canonical_packet(MessageKind::Transport)
         );
     }
 

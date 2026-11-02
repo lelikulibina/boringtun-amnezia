@@ -428,7 +428,7 @@ fn random_range<R: RngCore>(rng: &mut R, min: u32, max: u32) -> u32 {
     if max <= min {
         return min;
     }
-    let width = u64::from(max) - u64::from(min);
+    let width = u64::from(max) - u64::from(min) + 1;
     min + random_below_u64(rng, width) as u32
 }
 
