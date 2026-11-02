@@ -16,7 +16,7 @@ Rust-проект для поддержки стандартного WireGuard �
 - **Таймеры:** `AwgTunnel::update_timers` предоставляет хосту polling BoringTun для rekey, повторных handshake и persistent keepalive; пока используются стандартные интервалы BoringTun, а AWG overrides отклоняются.
 - **Сетевой/TUN стек:** не входит в библиотечную обёртку.
 
-Полная production-совместимость с amneziawg-go 3.0/3.1 пока не заявляется. Двусторонние тесты с закреплёнными upstream-реализациями WireGuard Go и AmneziaWG Go прошли в CI 2026-11-02 для классического WireGuard, AWG 3.0 и AWG 3.1, включая MAC2 challenge/retry, DisableCookies и принудительную cookie-secret rotation. Не покрыты длительная естественная нагрузка на live Go handshake queue, естественное истечение CookieRefreshTime, полные differential/golden vectors, кастомные таймеры и padding внутренних keepalive-пакетов.
+Полная production-совместимость с WireGuard и AmneziaWG 3.0/3.1 пока не заявляется. В CI 2026-11-02 прошла двусторонняя interoperability-проверка с закреплённым amneziawg-go для классического WireGuard (WG-режим Go-реализации), AWG 3.0 и AWG 3.1, включая MAC2 challenge/retry, DisableCookies и принудительную cookie-secret rotation. Отдельная interoperability-проверка с upstream wireguard-go ещё не выполнена. Также не покрыты длительная естественная нагрузка на live Go handshake queue, естественное истечение CookieRefreshTime, полные differential/golden vectors, кастомные таймеры и padding внутренних keepalive-пакетов.
 
 ## Сборка и тесты
 
