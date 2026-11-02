@@ -41,7 +41,7 @@ README upstream предупреждает о реструктуризации �
 - Репозиторий: https://github.com/WireGuard/wireguard-go
 - Контрольная ревизия при аудите: `b3bc704ef0ee21a36298601a9e1e5ff90377ac52`.
 - Используется как независимый поведенческий эталон для классического WireGuard.
-- Добавлен отдельный helper `tests/interop/wireguard_peer.go`, который собирается непосредственно внутри закреплённой upstream ревизии и проверяет Rust/BoringTun ↔ wireguard-go в обе стороны. Результат CI для нового helper ожидается.
+- Добавлен отдельный helper `tests/interop/wireguard_peer.go`, который собирается непосредственно внутри закреплённой upstream ревизии. Двусторонние тесты WireGuard прошли в CI 2026-11-02.
 
 ## Текущее состояние
 
@@ -50,12 +50,12 @@ README upstream предупреждает о реструктуризации �
 - Есть интеграционные тесты полного handshake и шифрования/расшифрования IPv4 пакета между двумя экземплярами Tunn.
 - Добавлен CPS парсер/рендерер I1-I5 с unit-тестами.
 - Конфигурация проверяет диапазоны, непересечение H1-H4, junk bounds, обязательные S1-S4 для Header Protection и флаги 3.1.
-- Реализован базовый AWG packet transformation pipeline: H1-H4, S1-S4, header protection, MAC1 normalization, RandomTrailers, ContentPaddingAddition, CPS preambles и junk. Полная совместимость AWG 3.0/3.1 пока не заявляется: нет внешней двусторонней interoperability suite, внешняя MAC2 under-load/cookie-rotation проверка с random H1/H2, custom timers и keepalive padding.
+- Реализован AWG packet transformation pipeline: H1-H4, S1-S4, header protection, MAC1/MAC2 normalization, Cookie Reply, RandomTrailers, ContentPaddingAddition, CPS preambles и junk. В CI прошли двусторонние Rust ↔ amneziawg-go тесты AWG 3.0/3.1, в том числе MAC2 challenge, DisableCookies и cookie-secret rotation; также прошёл отдельный двусторонний Rust ↔ wireguard-go тест классического WireGuard. Это подтверждает именно покрытые сценарии, но не является заявлением о полной production-совместимости.
 
 
 ## Дополнительное hardening после анализа классификатора
 
-При приёме пакета с рандомизированным H1/H2 Rust-кодек сначала проверяет исходный MAC1 над сообщением с фактическим type ID и только после успешной проверки канонизирует заголовок и пересчитывает MAC1 для BoringTun. Это предотвращает принятие случайного handshake-кандидата, собранного из байтов другого типа пакета. Регрессионный тест моделирует ложный H1-кандидат перед корректным transport-пакетом. Проверка должна быть подтверждена двусторонними тестами с закреплённым amneziawg-go.
+При приёме пакета с рандомизированным H1/H2 Rust-кодек сначала проверяет исходный MAC1 над сообщением с фактическим type ID и только после успешной проверки канонизирует заголовок и пересчитывает MAC1 для BoringTun. Это предотвращает принятие случайного handshake-кандидата, собранного из байтов другого типа пакета. Регрессионный тест моделирует ложный H1-кандидат перед корректным transport-пакетом. Проверка подтверждена двусторонними тестами с закреплённым amneziawg-go.
 
 В upstream issue #186 описан класс проблем с ложной классификацией транспортных пакетов при RandomTrailers и диапазонах H1-H3: https://github.com/amnezia-vpn/amneziawg-go/issues/186. Rust-код не должен считать само попадание случайных байтов в диапазон достаточным основанием для классификации handshake.
 
