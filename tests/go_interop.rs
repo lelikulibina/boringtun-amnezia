@@ -264,7 +264,13 @@ fn receive_awg_ipv4(
         let datagram = receive_udp(socket, &mut udp_buffer);
         match tunnel
             .decapsulate(Some(peer.ip()), &datagram, &mut tunnel_buffer, rng)
-            .expect("decode Go AWG packet")
+            .unwrap_or_else(|error| {
+                let prefix = encode_hex(&datagram[..datagram.len().min(32)]);
+                panic!(
+                    "decode Go AWG packet failed ({} bytes, prefix {prefix}): {error:?}",
+                    datagram.len()
+                )
+            })
         {
             AwgTunnelOutput::WriteToTunnelV4(packet, _) => return packet,
             AwgTunnelOutput::WriteToNetwork(packet) => {
