@@ -735,9 +735,9 @@ mod tests {
     fn adjacent_header_ranges_are_accepted() {
         let mut awg = AmneziaConfig::default();
         // Keep the test ranges clear of the implicit default H3=3 and H4=4.
-        // Ranges use the upstream half-open [min, max) semantics.
+        // Upstream ranges include both endpoints, so leave one value between them.
         awg.headers.h1 = Some(ValueRange { min: 10, max: 14 });
-        awg.headers.h2 = Some(ValueRange { min: 14, max: 18 });
+        awg.headers.h2 = Some(ValueRange { min: 15, max: 18 });
         let config = EngineConfig {
             mode: ProtocolMode::AmneziaWg30,
             amnezia: Some(awg),
