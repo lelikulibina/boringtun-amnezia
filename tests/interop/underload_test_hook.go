@@ -39,15 +39,18 @@ func StressLiveHandshakeQueueForInterop(device *Device) bool {
 		buffer := device.GetMessageBuffer()
 		select {
 		case device.queue.handshake.c <- QueueHandshakeElement{
-			msgType: MessageUnknownType,
+			msgType: 0,
 			buffer:  buffer,
 		}:
 		default:
 			device.PutMessageBuffer(buffer)
 			return false
 		}
+		if device.IsUnderLoad() {
+			return true
+		}
 	}
-	return device.IsUnderLoad()
+	return false
 }
 
 // RotateCookieSecretForInterop expires the current cookie secret. The next
