@@ -868,6 +868,20 @@ mod tests {
         config
     }
 
+    fn hex_bytes(value: &str) -> Vec<u8> {
+        assert_eq!(value.len() % 2, 0);
+        value
+            .as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| {
+                let pair = std::str::from_utf8(pair).unwrap();
+                u8::from_str_radix(pair, 16).unwrap()
+            })
+            .collect()
+    }
+
     #[test]
     fn round_trips_all_four_wireguard_message_types_with_padding() {
         let mut config = base_config(false);
@@ -1298,6 +1312,58 @@ mod tests {
             codec.decode(&datagram).unwrap(),
             canonical_packet(MessageKind::Transport)
         );
+    }
+
+    // H1/H2 vectors independently generated with Python hashlib.blake2s
+    // and the IETF ChaCha20 construction used by upstream AmneziaWG.
+    #[test]
+    fn h1_initiation_matches_mac1_and_header_protection_golden_vector() {
+        let mut config = base_config(true);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
+        config.headers.h2 = Some(ValueRange { min: 200, max: 201 });
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let packet = canonical_packet(MessageKind::HandshakeInitiation);
+
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x01)).unwrap();
+        let expected = hex_bytes(concat!(
+            "010101010101010101010101",
+            "485a1659ba7d2c006fc0085ffa3246ee9c8fbbb5919b1a4f28a415095a7a6edb",
+            "334ccddffffd443b76236aa97a6454d4bed95c7158d13f3d88fb80cc33fee9b",
+            "599244b913043296e82f81004f2ca55a1659cfb181f4653535f997c3ff334f2a",
+            "435c85fa1b8ec771fcbbfe6df361aeb758d8723c36f40ca7348539585bb92840",
+            "386868e5f55b9043f8bff83100b92872373944226"
+        ));
+
+        assert_eq!(encoded, expected);
+        let mut receiver =
+            AwgPacketCodec::new_with_keys(&config, &[0x22; 32], &[0x11; 32]).unwrap();
+        let mut canonical_expected = packet.clone();
+        recompute_mac1(&mut canonical_expected, &derive_mac1_key(&[0x22; 32])).unwrap();
+        assert_eq!(receiver.decode(&expected).unwrap(), canonical_expected);
+    }
+
+    #[test]
+    fn h2_response_matches_mac1_and_header_protection_golden_vector() {
+        let mut config = base_config(true);
+        config.headers.h1 = Some(ValueRange { min: 100, max: 101 });
+        config.headers.h2 = Some(ValueRange { min: 200, max: 201 });
+        let mut codec = AwgPacketCodec::new_with_keys(&config, &[0x11; 32], &[0x22; 32]).unwrap();
+        let packet = canonical_packet(MessageKind::HandshakeResponse);
+
+        let encoded = codec.encode(&packet, 500, &mut FixedRng(0x01)).unwrap();
+        let expected = hex_bytes(concat!(
+            "010101010101010101010101",
+            "e45a1659ba7d2c006fc0085ffa3246ee9c8fbbb5919b1a4f28a415095a7a6edb",
+            "334ccddffffd443b76236aa97a6454d4bed95c7158d13f3d88fb80cc3a5ac155",
+            "98ea06eafc024e869feb084df2ca55a1659cfb181f4653535f997c3f"
+        ));
+
+        assert_eq!(encoded, expected);
+        let mut receiver =
+            AwgPacketCodec::new_with_keys(&config, &[0x22; 32], &[0x11; 32]).unwrap();
+        let mut canonical_expected = packet.clone();
+        recompute_mac1(&mut canonical_expected, &derive_mac1_key(&[0x22; 32])).unwrap();
+        assert_eq!(receiver.decode(&expected).unwrap(), canonical_expected);
     }
 
     // Fixed vectors independently generated with Python hashlib.blake2s.
