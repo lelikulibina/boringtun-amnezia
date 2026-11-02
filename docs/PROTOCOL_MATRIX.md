@@ -9,12 +9,12 @@
 | MAC2 и Cookie Reply при H1/H2 randomization | Не требуется | Реализован внутренний cookie flow; есть end-to-end тест under-load | То же |
 | S1-S4 | Нет | Реализовано | Реализовано |
 | Header protection | Нет | ChaCha20 | ChaCha20 |
-| ContentPaddingAddition | Нет | Нет (только базовое MTU-aware padding до кратности 16) | Реализовано |
+| ContentPaddingAddition | Нет | Отклоняется как возможность 3.1; доступно только базовое MTU-aware padding до кратности 16 | Реализовано |
 | Jc/Jmin/Jmax | Нет | Junk-пакеты перед handshake | Junk-пакеты перед handshake |
 | I1-I5 CPS | Нет | Parser/renderer и отправка | Parser/renderer и отправка |
 | RandomTrailers | Нет | Отклоняется как опция 3.1 | Handshake/cookie outer trailer и transport plaintext padding |
 | DisableCookies | Нет | Отклоняется как опция 3.1 | Отключает cookie challenge при сохранении MAC1; внешний Go тест подтверждает обход Cookie Reply при under-load |
-| Кастомные таймеры AWG | Стандартные WG | Не реализованы | Не реализованы; ненулевые overrides отклоняются |
+| Кастомные таймеры AWG | Стандартные WG | Не реализованы; ненулевые overrides отклоняются | Не реализованы; ненулевые overrides отклоняются |
 | Padding внутренних keepalive BoringTun | Стандартное поведение | Не реализовано | Не реализовано |
 | Внешняя совместимость | Rust/BoringTun ↔ upstream wireguard-go: handshake, Cookie Reply/MAC2 retry и IPv4 transport в обе стороны | Rust ↔ amneziawg-go: handshake, Cookie Reply/MAC2 и IPv4 transport в обе стороны | То же, плюс RandomTrailers, ContentPaddingAddition, DisableCookies и cookie rotation |
 
